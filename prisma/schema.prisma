@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 사용자
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  provider      String    // "kakao" | "google" | "apple"
+  providerId    String    @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  courses       Course[]
+  runSessions   RunSession[]
+  collections   Collection[]
+  likes         Like[]
+  rankings      UserRanking[]
+  accounts      Account[]
+  sessions      Session[]
+}
+
+// NextAuth.js Accounts
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+// NextAuth.js Sessions
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// 러닝 코스 (그림 모양 경로)
+model Course {
+  id            String    @id @default(cuid())
+  title         String
+  description   String?   @db.Text
+  creatorId     String
+  
+  // 경로 정보 (GeoJSON 형태로 저장)
+  waypoints     Json      // [{lat: number, lng: number, order: number}]
+  totalDistance Float     // km
+  estimatedTime Int       // minutes
+  difficulty    Difficulty @default(EASY)
+  
+  // 위치 (검색/지도 표시용)
+  centerLat     Float
+  centerLng     Float
+  region        String?   // "서울", "부산" 등
+  
+  // 썸네일 이미지
+  thumbnailUrl  String?
+  
+  // 공개 설정
+  isPublic      Boolean   @default(true)
+  status        CourseStatus @default(ACTIVE)
+  
+  // 통계
+  likeCount     Int       @default(0)
+  runCount      Int       @default(0)
+  collectCount  Int       @default(0)  // 고유 수집자 수
+  
+  // 태그 (최대 5개)
+  tags          String[]  // ["하트", "야경", "초보환영"]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  creator       User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  runSessions   RunSession[]
+  collections   Collection[]
+  likes         Like[]
+  rankings      CourseRanking[]
+  
+  // Indexes
+  @@index([centerLat, centerLng])
+  @@index([isPublic, status])
+  @@index([likeCount])
+  @@index([createdAt])
+}
+
+// 러닝 세션 (실제 달린 기록)
+// Note: 원시 GPS 데이터(path)는 6개월 후 삭제됨 (GDPR/프라이버시)
+// 통계 데이터(distance, duration 등)는 영구 보관
+model RunSession {
+  id            String    @id @default(cuid())
+  userId        String
+  courseId      String?   // 코스 따라 달린 경우 (null이면 자유러닝)
+  
+  // 경로 데이터 (실제 GPS 좌표들) - 6개월 후 삭제됨
+  path          Json      // [{lat: number, lng: number, timestamp: number, accuracy: number}]
+  
+  // 결과
+  distance      Float     // km
+  duration      Int       // seconds
+  pace          Float     // min/km
+  calories      Int?      // kcal
+  
+  // 수집 결과 (코스 따라 달린 경우)
+  matchRate     Float?    // 0-100, 경로 매칭률
+  isCollected   Boolean   @default(false)
+  collectionId  String?
+  
+  startedAt     DateTime
+  endedAt       DateTime
+  createdAt     DateTime  @default(now())
+  
+  // Relations
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course        Course?   @relation(fields: [courseId], references: [id])
+  collection    Collection? @relation(fields: [collectionId], references: [id])
+  
+  // Indexes
+  @@index([userId, createdAt])
+  @@index([courseId, createdAt])
+}
+
+// 수집 기록 (재수집 가능)
+model Collection {
+  id            String    @id @default(cuid())
+  userId        String
+  courseId      String
+  
+  // 수집 횟수 (재수집용)
+  count         Int       @default(1)
+  
+  // 첫 수집 & 마지막 수집
+  firstAt       DateTime  @default(now())
+  lastAt        DateTime  @updatedAt
+  
+  // Relations
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course        Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  runSessions   RunSession[]
+  
+  @@unique([userId, courseId])
+  @@index([userId, count])
+  @@index([courseId, count])
+}
+
+// 좋아요
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  createdAt DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, courseId])
+}
+
+// 유저 랭킹 (수집왕, 제작왕 등)
+model UserRanking {
+  id          String      @id @default(cuid())
+  userId      String
+  type        RankingType
+  score       Int         // 수집왕: 코스 수, 제작왕: 총 좋아요
+  period      Period      // WEEKLY | MONTHLY | ALL_TIME
+  weekOfYear  Int?        // 주간 랭킹용
+  month       Int?        // 월간 랭킹용
+  year        Int
+  
+  updatedAt   DateTime    @updatedAt
+  
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, type, period, weekOfYear, month, year])
+  @@index([type, period, score])
+}
+
+// 코스별 랭킹 (가장 많이 달린 사람)
+model CourseRanking {
+  id          String   @id @default(cuid())
+  courseId    String
+  userId      String
+  runCount    Int      // 이 코스를 달린 횟수
+  bestTime    Int?     // 최고 기록 (seconds)
+  
+  updatedAt   DateTime @updatedAt
+  
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  @@unique([courseId, userId])
+  @@index([courseId, runCount])
+}
+
+// Enums
+enum Difficulty {
+  EASY      // ⭐ 3km 이하, 평지
+  MEDIUM    // ⭐⭐ 3-7km, 약간 경사
+  HARD      // ⭐⭐⭐ 7km 이상, 심한 경사
+}
+
+enum CourseStatus {
+  ACTIVE
+  DELETED
+  HIDDEN
+}
+
+enum RankingType {
+  COLLECTOR   // 수집왕 - 수집한 고유 코스 수
+  CREATOR     // 제작왕 - 만든 코스의 총 좋아요
+}
+
+enum Period {
+  WEEKLY
+  MONTHLY
+  ALL_TIME
+}
