@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // 사용자
@@ -26,6 +25,9 @@ model User {
   rankings      UserRanking[]
   accounts      Account[]
   sessions      Session[]
+  subscriptions Subscription[]
+  transactions  PaymentTransaction[]
+  entitlements  Entitlement[]
 }
 
 // NextAuth.js Accounts
@@ -55,6 +57,88 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// 유료 플랜
+model Plan {
+  id            String         @id @default(cuid())
+  code          String         @unique // PRO_MONTHLY, PRO_YEARLY
+  name          String
+  description   String?        @db.Text
+  priceKrw      Int
+  interval      PlanInterval
+  isActive      Boolean        @default(true)
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  subscriptions Subscription[]
+
+  @@index([isActive])
+}
+
+// 구독 상태
+model Subscription {
+  id                     String             @id @default(cuid())
+  userId                 String
+  planId                 String
+  provider               PaymentProvider
+  providerSubscriptionId String?            @unique
+  status                 SubscriptionStatus
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
+  canceledAt             DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan         Plan                 @relation(fields: [planId], references: [id])
+  transactions PaymentTransaction[]
+
+  @@index([userId, status])
+}
+
+// 결제 트랜잭션
+model PaymentTransaction {
+  id                String         @id @default(cuid())
+  userId            String
+  subscriptionId    String?
+  provider          PaymentProvider
+  providerPaymentId String?        @unique
+  idempotencyKey    String         @unique
+  amountKrw         Int
+  status            PaymentStatus  @default(PENDING)
+  paidAt            DateTime?
+  failedReason      String?
+  rawPayload        Json?
+  createdAt         DateTime       @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([subscriptionId])
+}
+
+// 권한(Entitlement)
+model Entitlement {
+  id        String          @id @default(cuid())
+  userId    String
+  type      EntitlementType
+  source    String          // subscription, promo
+  sourceRef String?
+  startsAt  DateTime        @default(now())
+  endsAt    DateTime?
+  isActive  Boolean         @default(true)
+  metadata  Json?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, isActive])
+  @@index([endsAt])
 }
 
 // 러닝 코스 (그림 모양 경로)
@@ -236,4 +320,38 @@ enum Period {
   WEEKLY
   MONTHLY
   ALL_TIME
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum PaymentProvider {
+  TOSS
+  PORTONE
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELED
+  REFUNDED
+}
+
+enum EntitlementType {
+  PRO
+  AD_FREE
+  ADVANCED_INSIGHTS
+  CREATOR_TOOLS
 }

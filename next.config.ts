@@ -5,7 +5,17 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN: process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN,
   },
   images: {
-    domains: ['localhost'],
+    remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+      },
+      {
+        protocol: 'https',
+        hostname: 'api.mapbox.com',
+      },
+    ],
+    qualities: [70, 75],
   },
   async headers() {
     return [

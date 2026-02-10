@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -24,7 +24,6 @@ interface UseCourseDrawingReturn {
 
 export function useCourseDrawing(): UseCourseDrawingReturn {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
-  const [totalDistance, setTotalDistance] = useState(0);
   const mapRef = useRef<mapboxgl.Map | null>(null);
 
   // Calculate distance between two points using Haversine formula
@@ -43,18 +42,16 @@ export function useCourseDrawing(): UseCourseDrawingReturn {
     return R * c;
   };
 
-  // Update total distance whenever waypoints change
-  useEffect(() => {
+  const totalDistance = useMemo(() => {
     if (waypoints.length < 2) {
-      setTotalDistance(0);
-      return;
+      return 0;
     }
 
     let distance = 0;
     for (let i = 1; i < waypoints.length; i++) {
-      distance += calculateDistance(waypoints[i-1], waypoints[i]);
+      distance += calculateDistance(waypoints[i - 1], waypoints[i]);
     }
-    setTotalDistance(Math.round(distance * 100) / 100);
+    return Math.round(distance * 100) / 100;
   }, [waypoints]);
 
   const addWaypoint = useCallback((lat: number, lng: number) => {
@@ -79,7 +76,6 @@ export function useCourseDrawing(): UseCourseDrawingReturn {
 
   const clearWaypoints = useCallback(() => {
     setWaypoints([]);
-    setTotalDistance(0);
   }, []);
 
   const isValid = waypoints.length >= 5 && waypoints.length <= 30;

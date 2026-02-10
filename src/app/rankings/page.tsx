@@ -1,0 +1,265 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { trpc } from '@/components/providers/TRPCProvider';
+import { clientEnv } from '@/lib/env';
+import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/ui/error-state';
+import { Card, CardContent } from '@/components/ui/card';
+import { ChevronLeft } from 'lucide-react';
+import { getTier } from '@/lib/tier';
+import { NAVER_LIKE_MAP_STYLE_ID } from '@/lib/map-style';
+
+const tabs = [
+  { id: 'popular', label: '인기코스' },
+  { id: 'collector', label: '수집왕' },
+  { id: 'creator', label: '제작왕' },
+  { id: 'course', label: '코스별' },
+] as const;
+
+const periods = [
+  { id: 'WEEKLY', label: '주간' },
+  { id: 'MONTHLY', label: '월간' },
+  { id: 'ALL_TIME', label: '전체' },
+] as const;
+
+export default function RankingsPage() {
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['id']>('popular');
+  const [period, setPeriod] = useState<(typeof periods)[number]['id']>('ALL_TIME');
+  const { data, isError, refetch } = trpc.ranking.list.useQuery({ period });
+  const mapboxToken = clientEnv.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
+  const maxPathPoints = 50;
+  const canUseMap = Boolean(mapboxToken);
+
+  const rankLabel = (index: number) => {
+    if (index === 0) return '🥇';
+    if (index === 1) return '🥈';
+    if (index === 2) return '🥉';
+    return `${index + 1}.`;
+  };
+
+  const getMapImageUrl = (lat: number, lng: number) => {
+    const width = 240;
+    const height = 160;
+    const zoom = 13;
+    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${lng},${lat},${zoom},0/${width}x${height}?access_token=${mapboxToken}`;
+  };
+
+  const encodePolyline = (points: { lat: number; lng: number }[]) => {
+    let result = '';
+    let prevLat = 0;
+    let prevLng = 0;
+
+    points.forEach((point) => {
+      const lat = Math.round(point.lat * 1e5);
+      const lng = Math.round(point.lng * 1e5);
+      const dLat = lat - prevLat;
+      const dLng = lng - prevLng;
+      prevLat = lat;
+      prevLng = lng;
+
+      [dLat, dLng].forEach((value) => {
+        let shifted = value << 1;
+        if (value < 0) shifted = ~shifted;
+        let chunk = shifted;
+        while (chunk >= 0x20) {
+          result += String.fromCharCode((0x20 | (chunk & 0x1f)) + 63);
+          chunk >>= 5;
+        }
+        result += String.fromCharCode(chunk + 63);
+      });
+    });
+
+    return result;
+  };
+
+  const samplePath = (points: { lat: number; lng: number }[]) => {
+    if (points.length <= maxPathPoints) return points;
+    const step = Math.ceil(points.length / maxPathPoints);
+    const sampled: { lat: number; lng: number }[] = [];
+    for (let i = 0; i < points.length; i += step) {
+      sampled.push(points[i]);
+    }
+    if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+      sampled.push(points[points.length - 1]);
+    }
+    return sampled;
+  };
+
+  const getMapPathImageUrl = (points: { lat: number; lng: number }[]) => {
+    const width = 240;
+    const height = 160;
+    const path = encodePolyline(samplePath(points));
+    const overlay = `path-4+0ea5e9(${encodeURIComponent(path)})`;
+    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${overlay}/auto/${width}x${height}?padding=40&access_token=${mapboxToken}`;
+  };
+
+  return (
+    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-20">
+      <header className="bg-white/75 backdrop-blur border-b border-white/60 px-4 py-5 sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+          <Link href="/">
+            <Button variant="ghost" size="icon" className="rounded-full">
+              <ChevronLeft className="w-6 h-6" />
+            </Button>
+          </Link>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900">랭킹</h1>
+        </div>
+      </header>
+
+      <main className="p-4 space-y-4">
+        <div className="flex gap-2 rounded-full bg-white/70 p-1 shadow-[0_12px_24px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
+          {tabs.map((tab) => (
+            <Button
+              key={tab.id}
+              size="sm"
+              variant={activeTab === tab.id ? 'default' : 'outline'}
+              className="rounded-full"
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </Button>
+          ))}
+        </div>
+
+        <div className="flex gap-2 rounded-full bg-white/70 p-1 shadow-[0_12px_24px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
+          {periods.map((item) => (
+            <Button
+              key={item.id}
+              size="sm"
+              variant={period === item.id ? 'default' : 'outline'}
+              className="rounded-full"
+              onClick={() => setPeriod(item.id)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+
+        {isError && (
+          <ErrorState
+            title="랭킹 데이터를 불러오지 못했습니다"
+            message="네트워크 상태를 확인해주세요"
+            actionLabel="다시 시도"
+            onAction={() => refetch()}
+          />
+        )}
+
+        {!isError && activeTab === 'popular' && (
+          <div className="space-y-3">
+            {data?.popularCourses.length ? (
+              data.popularCourses.map((course, index) => (
+                <Link key={course.id} href={`/courses/${course.id}`}>
+                  <Card className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)] overflow-hidden transition-transform hover:-translate-y-0.5">
+                    <CardContent className="p-0">
+                      <div className="flex">
+                        <div className="relative h-20 w-28 flex-shrink-0 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+                          {canUseMap && Array.isArray(course.waypoints) ? (
+                            <Image
+                              src={(() => {
+                                const raw = course.waypoints as { lat: number; lng: number }[];
+                                return raw.length >= 2
+                                  ? getMapPathImageUrl(raw)
+                                  : getMapImageUrl(course.centerLat, course.centerLng);
+                              })()}
+                              alt={`${course.title} 지도`}
+                              fill
+                              sizes="112px"
+                              className="object-cover"
+                              quality={70}
+                              unoptimized
+                            />
+                          ) : canUseMap ? (
+                            <Image
+                              src={getMapImageUrl(course.centerLat, course.centerLng)}
+                              alt={`${course.title} 지도`}
+                              fill
+                              sizes="112px"
+                              className="object-cover"
+                              quality={70}
+                              unoptimized
+                            />
+                          ) : null}
+                        </div>
+                        <div className="flex-1 p-4 flex items-center justify-between">
+                          <div>
+                            <div className="font-medium">{rankLabel(index)} {course.title}</div>
+                            <div className="text-sm text-slate-600">❤️ {course.likeCount}</div>
+                          </div>
+                          <div className="text-sm text-slate-500">{course.totalDistance.toFixed(1)}km</div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))
+            ) : (
+              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+            )}
+          </div>
+        )}
+
+        {!isError && activeTab === 'collector' && (
+          <div className="space-y-3">
+            {data?.collectorRankings.length ? (
+              data.collectorRankings.map((ranking, index) => (
+                <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="font-medium">
+                      {rankLabel(index)} {ranking.name ?? '익명'}
+                      <span className="ml-2">{getTier(ranking.collectedCount).icon}</span>
+                    </div>
+                    <div className="text-sm text-slate-500">{ranking.score}개</div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+            )}
+          </div>
+        )}
+
+        {!isError && activeTab === 'creator' && (
+          <div className="space-y-3">
+            {data?.creatorRankings.length ? (
+              data.creatorRankings.map((ranking, index) => (
+                <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="font-medium">
+                      {rankLabel(index)} {ranking.name ?? '익명'}
+                      <span className="ml-2">{getTier(ranking.collectedCount).icon}</span>
+                    </div>
+                    <div className="text-sm text-slate-500">{ranking.score}❤️</div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+            )}
+          </div>
+        )}
+
+        {!isError && activeTab === 'course' && (
+          <div className="space-y-3">
+            {data?.courseRankings.length ? (
+              data.courseRankings.map((ranking, index) => (
+                <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{rankLabel(index)} {ranking.courseTitle}</div>
+                    </div>
+                    <div className="text-sm text-slate-500">{ranking.runCount}회</div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
 
 // 개발용 더미 토큰
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.dev.mapbox.token';
@@ -24,12 +25,19 @@ export function Map({ className, onMapLoad, center = [126.978, 37.5665], zoom = 
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: NAVER_LIKE_MAP_STYLE,
       center: center,
       zoom: zoom,
     });
 
+    const handleMapStyleData = () => {
+      if (!map.current) return;
+      applyKoreanMapLabels(map.current);
+      applyRoadVisualStyle(map.current);
+    };
+
     map.current.on('load', () => {
+      handleMapStyleData();
       setIsLoaded(true);
       onMapLoad?.(map.current!);
     });
