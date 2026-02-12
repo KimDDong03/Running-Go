@@ -93,8 +93,8 @@ function BillingCheckoutPageContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center p-4">
-      <Card className="w-full max-w-md rounded-[28px] border border-white/70 bg-white/80 shadow-[0_26px_50px_-32px_rgba(15,23,42,0.6)]">
+    <div className="rg-page flex items-center justify-center p-4">
+      <Card className="w-full max-w-md rounded-[30px]">
         <CardContent className="p-6 space-y-4">
           <h1 className="text-xl font-semibold text-slate-900">구독 결제</h1>
 
@@ -113,7 +113,7 @@ function BillingCheckoutPageContent() {
           )}
 
           {data && (
-            <div className="rounded-2xl border border-white/70 bg-white/80 p-4 space-y-1">
+            <div className="rg-soft-panel p-4 space-y-1">
               <div className="text-sm text-slate-500">결제 항목</div>
               <div className="font-semibold text-slate-900">{data.orderName}</div>
               <div className="text-sm text-slate-600">{data.amount.toLocaleString('ko-KR')}원</div>
@@ -123,14 +123,14 @@ function BillingCheckoutPageContent() {
           <div className="flex flex-col gap-2">
             <Button
               size="lg"
-              className="w-full rounded-2xl"
+              className="rg-touch w-full rounded-2xl"
               onClick={handleStartPayment}
               disabled={!canStartPayment}
             >
               결제 진행하기
             </Button>
             <Link href="/profile">
-              <Button size="lg" variant="outline" className="w-full rounded-2xl">프로필로 돌아가기</Button>
+              <Button size="lg" variant="outline" className="rg-touch w-full rounded-2xl">프로필로 돌아가기</Button>
             </Link>
           </div>
         </CardContent>
@@ -141,7 +141,7 @@ function BillingCheckoutPageContent() {
 
 export default function BillingCheckoutPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)]" />}>
+    <Suspense fallback={<div className="rg-page" />}>
       <BillingCheckoutPageContent />
     </Suspense>
   );

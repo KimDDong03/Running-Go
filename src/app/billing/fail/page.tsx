@@ -39,8 +39,8 @@ function BillingFailPageContent() {
   }, [message]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center p-4">
-      <Card className="w-full max-w-md rounded-[28px] border border-white/70 bg-white/80 shadow-[0_26px_50px_-32px_rgba(15,23,42,0.6)]">
+    <div className="rg-page flex items-center justify-center p-4">
+      <Card className="w-full max-w-md rounded-[30px]">
         <CardContent className="p-6 space-y-4 text-center">
           <div className="text-4xl">😥</div>
           <h1 className="text-xl font-semibold text-slate-900">결제가 완료되지 않았습니다</h1>
@@ -49,10 +49,10 @@ function BillingFailPageContent() {
 
           <div className="flex flex-col gap-2">
             <Link href="/profile">
-              <Button size="lg" className="w-full rounded-2xl">다시 시도하기</Button>
+              <Button size="lg" className="rg-touch w-full rounded-2xl">다시 시도하기</Button>
             </Link>
             <Link href="/">
-              <Button size="lg" variant="outline" className="w-full rounded-2xl">홈으로</Button>
+              <Button size="lg" variant="outline" className="rg-touch w-full rounded-2xl">홈으로</Button>
             </Link>
           </div>
         </CardContent>
@@ -63,7 +63,7 @@ function BillingFailPageContent() {
 
 export default function BillingFailPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)]" />}>
+    <Suspense fallback={<div className="rg-page" />}>
       <BillingFailPageContent />
     </Suspense>
   );

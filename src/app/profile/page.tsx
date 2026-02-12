@@ -93,11 +93,11 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-20">
-      <header className="bg-white/75 backdrop-blur border-b border-white/60 px-4 py-5 sticky top-0 z-10">
+    <div className="rg-page">
+      <header className="rg-page-header px-4 py-5 sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <Link href="/">
-            <Button variant="ghost" size="icon" className="rounded-full">
+            <Button variant="ghost" size="icon" className="rg-touch-icon rg-press rounded-full">
               <ChevronLeft className="w-6 h-6" />
             </Button>
           </Link>
@@ -105,7 +105,7 @@ export default function ProfilePage() {
         </div>
       </header>
 
-      <main className="p-4 space-y-4">
+      <main className="rg-page-main rg-stagger p-4 space-y-4">
         {isError && (
           <ErrorState
             title="프로필을 불러오지 못했습니다"
@@ -142,7 +142,7 @@ export default function ProfilePage() {
               {data?.user.isGuest && (
                 <div>
                   <Link href="/login">
-                    <Button className="rounded-full">로그인</Button>
+                    <Button className="rg-touch rg-press rounded-full">로그인</Button>
                   </Link>
                 </div>
               )}
@@ -164,7 +164,7 @@ export default function ProfilePage() {
                 <div className="space-y-2">
                   <p className="text-sm text-slate-600">프로 구독은 로그인 후 이용할 수 있습니다.</p>
                   <Link href="/login">
-                    <Button className="rounded-full">로그인 후 구독하기</Button>
+                    <Button className="rg-touch rg-press rounded-full">로그인 후 구독하기</Button>
                   </Link>
                 </div>
               )}
@@ -191,7 +191,7 @@ export default function ProfilePage() {
                   </div>
                   <Button
                     variant="outline"
-                    className="rounded-full"
+                    className="rg-touch rg-press rounded-full"
                     disabled={cancelSubscription.isPending}
                     onClick={() => cancelSubscription.mutate({ immediate: false })}
                   >
@@ -212,7 +212,7 @@ export default function ProfilePage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="rounded-full"
+                        className="rg-touch rg-press rounded-full"
                         onClick={() => {
                           void refetchPlans();
                         }}
@@ -234,7 +234,7 @@ export default function ProfilePage() {
                           </div>
                           <Button
                             size="sm"
-                            className="rounded-full"
+                            className="rg-touch rg-press rounded-full"
                             disabled={createCheckout.isPending}
                             onClick={() => {
                               void handleCheckout(plan.code);
@@ -302,7 +302,7 @@ export default function ProfilePage() {
                 <div className="space-y-3">
                   {data.createdCoursePreview.map((course) => (
                     <Link key={course.id} href={`/courses/${course.id}`}>
-                      <div className="flex items-center justify-between rounded-2xl border border-white/70 bg-white/80 px-4 py-3">
+                      <div className="rg-interactive-card flex items-center justify-between rounded-2xl border border-white/70 bg-white/80 px-4 py-3">
                         <div>
                           <div className="text-sm font-semibold text-slate-900">{course.title}</div>
                           <div className="text-xs text-slate-500">{course.totalDistance.toFixed(1)}km · ❤️ {course.likeCount}</div>

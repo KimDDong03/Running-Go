@@ -495,13 +495,13 @@ function RunPageContent() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-28">
+    <div className="rg-page pb-28">
       {/* Map */}
       <div className="h-screen relative">
         <div ref={mapContainer} className="w-full h-full" />
 
         {/* Stats Overlay */}
-        <div className="absolute top-4 left-4 right-4 bg-white/90 backdrop-blur rounded-2xl p-4 shadow-lg">
+        <div className="absolute top-4 left-4 right-4 rg-soft-panel rg-fade p-4">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <div className="text-2xl font-bold text-primary">{formatDuration(duration)}</div>
@@ -523,11 +523,11 @@ function RunPageContent() {
       </div>
 
       {/* Controls */}
-    <div className="fixed bottom-0 left-0 right-0 p-6 pb-[env(safe-area-inset-bottom)] bg-white border-t">
+    <div className="rg-safe-bottom fixed bottom-0 left-0 right-0 border-t border-white/70 bg-white/85 p-6 backdrop-blur-xl shadow-[0_-14px_30px_-26px_rgba(15,23,42,0.7)]">
         {!isTracking ? (
           <Button
             size="lg"
-            className="w-full h-16 text-lg rounded-2xl bg-primary hover:bg-primary/90"
+            className="rg-touch w-full h-16 text-lg rounded-2xl bg-primary hover:bg-primary/90"
             onClick={isPaused && hasPath ? resumeTracking : startTracking}
           >
             <Play className="w-6 h-6 mr-2" />
@@ -538,7 +538,7 @@ function RunPageContent() {
             <Button
               size="lg"
               variant="outline"
-              className="flex-1 h-16 text-lg rounded-2xl"
+              className="rg-touch flex-1 h-16 text-lg rounded-2xl"
               onClick={pauseTracking}
             >
               <Pause className="w-6 h-6 mr-2" />
@@ -547,7 +547,7 @@ function RunPageContent() {
             <Button
               size="lg"
               variant="destructive"
-              className="flex-1 h-16 text-lg rounded-2xl"
+              className="rg-touch flex-1 h-16 text-lg rounded-2xl"
               onClick={stopTracking}
             >
               <Square className="w-6 h-6 mr-2" />
@@ -562,7 +562,7 @@ function RunPageContent() {
 
 export default function RunPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)]" />}>
+    <Suspense fallback={<div className="rg-page" />}>
       <RunPageContent />
     </Suspense>
   );

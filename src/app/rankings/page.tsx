@@ -97,11 +97,11 @@ export default function RankingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-20">
-      <header className="bg-white/75 backdrop-blur border-b border-white/60 px-4 py-5 sticky top-0 z-10">
+    <div className="rg-page">
+      <header className="rg-page-header px-4 py-5 sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <Link href="/">
-            <Button variant="ghost" size="icon" className="rounded-full">
+            <Button variant="ghost" size="icon" className="rg-touch-icon rg-press rounded-full">
               <ChevronLeft className="w-6 h-6" />
             </Button>
           </Link>
@@ -109,14 +109,14 @@ export default function RankingsPage() {
         </div>
       </header>
 
-      <main className="p-4 space-y-4">
-        <div className="flex gap-2 rounded-full bg-white/70 p-1 shadow-[0_12px_24px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
+      <main className="rg-page-main p-4 space-y-4">
+        <div className="rg-chip-bar rg-scroll-row p-1">
           {tabs.map((tab) => (
             <Button
               key={tab.id}
               size="sm"
               variant={activeTab === tab.id ? 'default' : 'outline'}
-              className="rounded-full"
+              className="rg-press h-8 rounded-full px-3 text-xs"
               onClick={() => setActiveTab(tab.id)}
             >
               {tab.label}
@@ -124,13 +124,13 @@ export default function RankingsPage() {
           ))}
         </div>
 
-        <div className="flex gap-2 rounded-full bg-white/70 p-1 shadow-[0_12px_24px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
+        <div className="rg-chip-bar rg-scroll-row p-1">
           {periods.map((item) => (
             <Button
               key={item.id}
               size="sm"
               variant={period === item.id ? 'default' : 'outline'}
-              className="rounded-full"
+              className="rg-press h-8 rounded-full px-3 text-xs"
               onClick={() => setPeriod(item.id)}
             >
               {item.label}
@@ -148,14 +148,14 @@ export default function RankingsPage() {
         )}
 
         {!isError && activeTab === 'popular' && (
-          <div className="space-y-3">
+          <div className="rg-stagger space-y-4 pb-1">
             {data?.popularCourses.length ? (
               data.popularCourses.map((course, index) => (
-                <Link key={course.id} href={`/courses/${course.id}`}>
-                  <Card className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)] overflow-hidden transition-transform hover:-translate-y-0.5">
-                    <CardContent className="p-0">
-                      <div className="flex">
-                        <div className="relative h-20 w-28 flex-shrink-0 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+                <Link key={course.id} href={`/courses/${course.id}`} className="block">
+                  <Card className="rg-interactive-card rounded-[24px] border border-white/75 bg-white/85 shadow-[0_18px_34px_-24px_rgba(15,23,42,0.58)] overflow-hidden transition-transform hover:-translate-y-0.5">
+                    <CardContent className="p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="relative h-24 w-32 flex-shrink-0 overflow-hidden rounded-2xl border border-white/80 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.55)]">
                           {canUseMap && Array.isArray(course.waypoints) ? (
                             <Image
                               src={(() => {
@@ -183,12 +183,12 @@ export default function RankingsPage() {
                             />
                           ) : null}
                         </div>
-                        <div className="flex-1 p-4 flex items-center justify-between">
+                        <div className="flex-1 p-1 pr-2 flex items-center justify-between gap-3">
                           <div>
-                            <div className="font-medium">{rankLabel(index)} {course.title}</div>
-                            <div className="text-sm text-slate-600">❤️ {course.likeCount}</div>
+                            <div className="font-semibold text-slate-900">{rankLabel(index)} {course.title}</div>
+                            <div className="mt-1 text-sm text-slate-600">❤️ {course.likeCount}</div>
                           </div>
-                          <div className="text-sm text-slate-500">{course.totalDistance.toFixed(1)}km</div>
+                          <div className="rounded-full bg-slate-100/85 px-2.5 py-1 text-xs font-medium text-slate-700">{course.totalDistance.toFixed(1)}km</div>
                         </div>
                       </div>
                     </CardContent>
@@ -202,7 +202,7 @@ export default function RankingsPage() {
         )}
 
         {!isError && activeTab === 'collector' && (
-          <div className="space-y-3">
+          <div className="rg-stagger space-y-3">
             {data?.collectorRankings.length ? (
               data.collectorRankings.map((ranking, index) => (
                 <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
@@ -222,7 +222,7 @@ export default function RankingsPage() {
         )}
 
         {!isError && activeTab === 'creator' && (
-          <div className="space-y-3">
+          <div className="rg-stagger space-y-3">
             {data?.creatorRankings.length ? (
               data.creatorRankings.map((ranking, index) => (
                 <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
@@ -242,7 +242,7 @@ export default function RankingsPage() {
         )}
 
         {!isError && activeTab === 'course' && (
-          <div className="space-y-3">
+          <div className="rg-stagger space-y-3">
             {data?.courseRankings.length ? (
               data.courseRankings.map((ranking, index) => (
                 <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">

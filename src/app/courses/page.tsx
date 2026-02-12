@@ -13,7 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, Heart, LocateFixed, MapPin } from 'lucide-react';
+import { Heart, LocateFixed, MapPin } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 
 const difficultyLabels: Record<Difficulty, string> = {
@@ -274,6 +274,9 @@ export default function CoursesPage() {
 
     mapInstance.on('dragstart', handleMapDragStart);
     mapInstance.on('load', handleMapStyleData);
+    requestAnimationFrame(() => {
+      mapInstance.resize();
+    });
 
     return () => {
       mapInstance.off('dragstart', handleMapDragStart);
@@ -286,6 +289,20 @@ export default function CoursesPage() {
       mapRef.current = null;
     };
   }, [mapboxToken, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== 'map' || !mapContainerRef.current) return;
+
+    const container = mapContainerRef.current;
+    const observer = new ResizeObserver(() => {
+      mapRef.current?.resize();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !userLocation) return;
@@ -506,23 +523,16 @@ export default function CoursesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-20">
-      <header className="bg-white/75 backdrop-blur border-b border-white/60 px-4 py-5 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/">
-              <Button variant="ghost" size="icon" className="rounded-full">
-                <ChevronLeft className="w-6 h-6" />
-              </Button>
-            </Link>
-            <h1 className="text-lg font-semibold tracking-tight text-slate-900">코스 탐색</h1>
-          </div>
+    <div className="h-[100dvh] overscroll-none overflow-hidden flex flex-col">
+      <header className="rg-page-header shrink-0 px-4 py-5 sticky top-0 z-10">
+        <div className="flex items-center justify-center">
+            <h1 className="text-lg font-semibold tracking-tight text-slate-900">홈</h1>
         </div>
       </header>
 
-      <main className="p-4 space-y-4">
+      <main className="rg-page-main min-h-0 flex-1 overflow-hidden p-4">
         {viewMode === 'map' ? (
-          <div className="relative h-[calc(100vh-8.25rem)] overflow-hidden rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
+          <div className="relative min-h-[260px] h-full overflow-hidden rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] sm:min-h-[320px]">
             <div ref={mapContainerRef} className="h-full w-full" />
 
             {isNearbyLoading && (
@@ -534,7 +544,7 @@ export default function CoursesPage() {
             <button
               type="button"
               aria-label="내 현재 위치로 이동"
-              className={`absolute right-3 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-md ${locationButtonTransitionClass}`}
+              className={`rg-touch-icon rg-press absolute right-3 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-md ${locationButtonTransitionClass}`}
               style={{ bottom: `calc(${locationButtonBottom}px + env(safe-area-inset-bottom))` }}
               onClick={moveToCurrentLocation}
             >
@@ -550,28 +560,33 @@ export default function CoursesPage() {
             {selectedCourse && (
               <div className="absolute left-3 right-3 z-20" style={{ bottom: panelHeight + 12 }}>
                 <Link href={`/run?courseId=${selectedCourse.id}`}>
-                  <Button size="lg" className="w-full h-12 rounded-2xl">이 코스로 러닝 시작</Button>
+                  <Button size="lg" className="rg-touch w-full h-12 rounded-2xl">이 코스로 러닝 시작</Button>
                 </Link>
               </div>
             )}
 
             <section
-              className={`absolute inset-x-0 bottom-0 z-30 rounded-t-3xl border-t border-white/70 bg-white/95 backdrop-blur-md shadow-[0_-16px_34px_-24px_rgba(15,23,42,0.55)] ${panelTransitionClass}`}
+              className={`absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-3xl border-t border-white/70 bg-white/95 backdrop-blur-md shadow-[0_-16px_34px_-24px_rgba(15,23,42,0.55)] ${panelTransitionClass}`}
               style={{ height: panelHeight }}
             >
               <button
                 type="button"
                 aria-label="목록 패널 높이 조절"
-                className="flex w-full items-center justify-center py-3 touch-none"
+                className="rg-touch shrink-0 touch-none flex w-full items-center justify-center py-3"
                 onPointerDown={onPanelHandlePointerDown}
                 onPointerMove={onPanelHandlePointerMove}
                 onPointerUp={onPanelHandlePointerEnd}
                 onPointerCancel={onPanelHandlePointerEnd}
               >
-                <span className="h-1.5 w-12 rounded-full bg-slate-300" />
+                <span className="h-2 w-14 rounded-full bg-gradient-to-r from-slate-300 via-slate-200 to-slate-300" />
               </button>
 
-              <div className="h-[calc(100%-44px)] overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom),12px)]">
+              <div
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(env(safe-area-inset-bottom),12px)] touch-pan-y [-webkit-overflow-scrolling:touch]"
+                onPointerDownCapture={(event) => {
+                  event.stopPropagation();
+                }}
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">주변 코스 목록</p>
@@ -580,7 +595,7 @@ export default function CoursesPage() {
                   <select
                     value={listSort}
                     onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
-                    className="h-9 rounded-full border border-slate-200 bg-white px-3 text-xs text-slate-700"
+                    className="rg-touch h-11 rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
                   >
                     <option value="LATEST">최신순</option>
                     <option value="LIKES_DESC">좋아요 많은순</option>
@@ -627,7 +642,7 @@ export default function CoursesPage() {
                 ) : !courses?.courses || courses.courses.length === 0 ? (
                   <div className="py-12 text-center text-sm text-slate-500">등록된 코스가 없습니다</div>
                 ) : (
-                  <div className="space-y-3 pb-2">
+                  <div className="rg-stagger space-y-3 pb-2">
                     {courses.courses.map((course) => (
                       <button
                         key={course.id}
@@ -635,7 +650,7 @@ export default function CoursesPage() {
                         className="w-full text-left"
                         onClick={() => setSelectedCourseId(course.id)}
                       >
-                        <Card className={`rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${selectedCourseId === course.id ? 'border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
+                        <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${selectedCourseId === course.id ? 'rg-selected border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
                           <CardContent className="p-3">
                             <div className="flex gap-3">
                               <div className="relative h-20 w-28 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
@@ -707,19 +722,19 @@ export default function CoursesPage() {
             onAction={() => refetch()}
           />
         ) : !courses?.courses || courses.courses.length === 0 ? (
-          <div className="text-center py-20">
-            <p className="text-slate-500">등록된 코스가 없습니다</p>
-            <Link href="/create">
-              <Button className="mt-4 rounded-full shadow-md shadow-sky-200/70">첫 코스 만들기</Button>
-            </Link>
-          </div>
+            <div className="text-center py-20">
+              <p className="text-slate-500">등록된 코스가 없습니다</p>
+              <Link href="/create">
+              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">첫 코스 만들기</Button>
+              </Link>
+            </div>
         ) : (
           <>
             <div className="flex items-center justify-end">
               <select
                 value={listSort}
                 onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
-                className="h-10 rounded-full border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                className="rg-touch h-11 rounded-full border border-white/70 bg-white/90 px-3 text-sm text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
               >
                 <option value="LATEST">최신순</option>
                 <option value="LIKES_DESC">좋아요 많은순</option>
@@ -731,9 +746,10 @@ export default function CoursesPage() {
             {listSort === 'NEAREST' && locationError && (
               <p className="text-sm text-slate-500">{locationError}</p>
             )}
-            {courses.courses.map((course) => (
+            <div className="rg-stagger space-y-4">
+              {courses.courses.map((course) => (
               <Link key={course.id} href={`/courses/${course.id}`}>
-                <Card className="rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] overflow-hidden cursor-pointer transition-transform hover:-translate-y-0.5">
+                <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] overflow-hidden cursor-pointer transition-transform hover:-translate-y-0.5">
                   <div className="relative h-40 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60 flex items-center justify-center">
                     {canUseMap ? (
                       <Image
@@ -789,7 +805,8 @@ export default function CoursesPage() {
                   </CardContent>
                 </Card>
               </Link>
-            ))}
+              ))}
+            </div>
           </>
         )}
       </main>

@@ -727,7 +727,7 @@ export default function CreateCoursePage() {
 
   if (sessionStatus === 'loading') {
     return (
-      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center p-6">
+      <div className="rg-page flex items-center justify-center p-6">
         <p className="text-slate-500">로그인 상태를 확인하는 중...</p>
       </div>
     );
@@ -735,17 +735,17 @@ export default function CreateCoursePage() {
 
   if (sessionStatus !== 'authenticated') {
     return (
-      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center p-6">
+      <div className="rg-page flex items-center justify-center p-6">
         <Card className="w-full max-w-md rounded-3xl border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
           <CardContent className="p-6 text-center space-y-4">
             <h1 className="text-xl font-semibold text-slate-900">로그인 후 코스를 만들 수 있어요</h1>
             <p className="text-sm text-slate-600">코스 작성자를 정확히 관리하기 위해 로그인 사용자만 코스를 제작할 수 있습니다.</p>
             <div className="flex items-center justify-center gap-2">
               <Link href="/">
-                <Button variant="outline" className="rounded-full">홈으로</Button>
+                <Button variant="outline" className="rg-touch rounded-full">홈으로</Button>
               </Link>
               <Link href="/login">
-                <Button className="rounded-full">로그인</Button>
+                <Button className="rg-touch rounded-full">로그인</Button>
               </Link>
             </div>
           </CardContent>
@@ -755,11 +755,11 @@ export default function CreateCoursePage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)]">
+    <div className="h-screen flex flex-col">
       {/* Header */}
-      <header className="bg-white/75 backdrop-blur border-b border-white/60 px-4 py-4 flex items-center justify-between">
+      <header className="rg-page-header px-4 py-4 flex items-center justify-between">
         <Link href="/">
-          <Button variant="ghost" size="icon" className="rounded-full">
+          <Button variant="ghost" size="icon" className="rg-touch-icon rounded-full">
             <ChevronLeft className="w-6 h-6" />
           </Button>
         </Link>
@@ -771,7 +771,7 @@ export default function CreateCoursePage() {
           <Button
             variant="ghost"
             size="icon"
-            className="rounded-full"
+            className="rg-touch-icon rounded-full"
             onClick={undoLastWaypoint}
             disabled={waypoints.length === 0 || isRouting}
           >
@@ -780,7 +780,7 @@ export default function CreateCoursePage() {
           <Button
             variant="ghost"
             size="icon"
-            className="rounded-full"
+            className="rg-touch-icon rounded-full"
             onClick={clearWaypoints}
             disabled={waypoints.length === 0 || isRouting}
           >
@@ -794,7 +794,7 @@ export default function CreateCoursePage() {
         <div ref={mapContainer} className="w-full h-full" />
         
         {/* Instructions */}
-        <div className="absolute top-4 left-4 right-4 bg-white/90 backdrop-blur rounded-2xl p-4 shadow-lg">
+        <div className="absolute top-4 left-4 right-4 rg-soft-panel p-4">
           <p className="text-sm text-slate-600 text-center">
             {isRouting
               ? '보행 경로를 계산 중입니다'
@@ -833,7 +833,7 @@ export default function CreateCoursePage() {
             <div className="flex items-center gap-2">
               <Button
                 size="lg"
-                className="h-12 rounded-2xl"
+                className="rg-touch h-12 rounded-2xl"
                 variant={drawMode ? 'default' : 'outline'}
                 onClick={() => {
                   if (isRouting) return;
@@ -847,7 +847,7 @@ export default function CreateCoursePage() {
               </Button>
               <Button
                 size="lg"
-                className="h-12 rounded-2xl"
+                className="rg-touch h-12 rounded-2xl"
                 variant="outline"
                 onClick={applyDrawnPath}
                 disabled={isRouting || !drawMode || drawnPoints.length < 2}
@@ -859,7 +859,7 @@ export default function CreateCoursePage() {
 
           <Button
             size="lg"
-            className="w-full h-14 text-lg rounded-2xl"
+            className="rg-touch w-full h-14 text-lg rounded-2xl"
             disabled={!isValid}
             onClick={() => {
               const routeCoordinates = routeCoordinatesRef.current;

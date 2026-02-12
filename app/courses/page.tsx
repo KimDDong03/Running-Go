@@ -1,1 +1,5 @@
-export { default } from '@/src/app/courses/page';
+import { redirect } from 'next/navigation';
+
+export default function CoursesRedirectPage() {
+  redirect('/collection');
+}

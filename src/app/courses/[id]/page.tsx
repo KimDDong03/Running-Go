@@ -181,7 +181,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="rg-page">
         <Skeleton className="h-64" />
         <div className="p-4 space-y-4">
           <Skeleton className="h-8 w-3/4" />
@@ -194,12 +194,12 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
   if (isError) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center">
+      <div className="rg-page flex items-center justify-center">
         <ErrorState
           title="코스를 불러오지 못했습니다"
           message="잠시 후 다시 시도해주세요"
-          actionLabel="코스 목록으로"
-          onAction={() => router.replace('/courses')}
+          actionLabel="도감으로"
+          onAction={() => router.replace('/collection')}
         />
       </div>
     );
@@ -207,12 +207,12 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
   if (!course) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center">
+      <div className="rg-page flex items-center justify-center">
         <ErrorState
           title="코스를 찾을 수 없습니다"
           message="다른 코스를 찾아보세요"
-          actionLabel="코스 목록으로"
-          onAction={() => router.replace('/courses')}
+          actionLabel="도감으로"
+          onAction={() => router.replace('/collection')}
         />
       </div>
     );
@@ -225,14 +225,14 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   const isOwner = Boolean(session?.user?.id && courseDetail.creatorId === session.user.id);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-24">
+    <div className="rg-page pb-24">
       {/* Header Image */}
       <div className="relative h-64 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
-        <Link href="/courses">
+        <Link href="/collection">
           <Button
             variant="secondary"
             size="icon"
-            className="absolute top-4 left-4 rounded-full bg-white/80 backdrop-blur border border-white/70"
+            className="rg-touch-icon absolute top-4 left-4 rounded-full bg-white/80 backdrop-blur border border-white/70"
           >
             <ChevronLeft className="w-6 h-6" />
           </Button>
@@ -297,7 +297,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-full"
+              className="rg-touch-icon rounded-full"
               onClick={(event) => {
                 event.preventDefault();
                 likeMutation.mutate({ courseId: id });
@@ -357,9 +357,9 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       </div>
 
       {/* Bottom Action */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 pb-[env(safe-area-inset-bottom)] bg-white/80 backdrop-blur border-t border-white/60">
+      <div className="rg-safe-bottom fixed bottom-0 left-0 right-0 border-t border-white/70 bg-white/85 p-4 backdrop-blur-xl shadow-[0_-14px_30px_-26px_rgba(15,23,42,0.7)]">
         <Link href={`/run?courseId=${courseDetail.id}`}>
-          <Button size="lg" className="w-full h-14 text-lg rounded-2xl">
+          <Button size="lg" className="rg-touch w-full h-14 text-lg rounded-2xl">
             <Play className="w-5 h-5 mr-2" />
             이 코스로 러닝 시작
           </Button>

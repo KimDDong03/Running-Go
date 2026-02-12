@@ -60,13 +60,13 @@ export default function CollectionPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-20">
-      <header className="bg-white/75 backdrop-blur border-b border-white/60 px-4 py-5 sticky top-0 z-10">
+    <div className="rg-page">
+      <header className="rg-page-header px-4 py-5 sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="icon"
-            className="rounded-full"
+            className="rg-touch-icon rg-press rounded-full"
             onClick={() => router.replace('/')}
           >
             <ChevronLeft className="w-6 h-6" />
@@ -75,7 +75,7 @@ export default function CollectionPage() {
         </div>
       </header>
 
-      <main className="p-4 space-y-4">
+      <main className="rg-page-main p-4 space-y-4">
         {isLoading ? (
           <div className="text-center py-20 text-slate-500">불러오는 중...</div>
         ) : isError ? (
@@ -83,7 +83,7 @@ export default function CollectionPage() {
             <div className="text-center py-20">
               <p className="text-red-500">로그인이 필요합니다</p>
               <Link href="/login">
-                <Button className="mt-4 rounded-full">로그인</Button>
+                <Button className="rg-touch rg-press mt-4 rounded-full">로그인</Button>
               </Link>
             </div>
           ) : (
@@ -98,16 +98,16 @@ export default function CollectionPage() {
           <div className="text-center py-20">
             <p className="text-slate-500">아직 수집한 코스가 없습니다</p>
             <Link href="/courses">
-              <Button className="mt-4 rounded-full shadow-md shadow-sky-200/70">코스 보러가기</Button>
+              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">코스 보러가기</Button>
             </Link>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-4">
+            <div className="rg-chip-bar rg-scroll-row">
               <Button
                 size="sm"
                 variant={sort === 'recent' ? 'default' : 'outline'}
-                className="rounded-full"
+                className="rg-touch rg-press rounded-full"
                 onClick={() => setSort('recent')}
               >
                 최신순
@@ -115,7 +115,7 @@ export default function CollectionPage() {
               <Button
                 size="sm"
                 variant={sort === 'count' ? 'default' : 'outline'}
-                className="rounded-full"
+                className="rg-touch rg-press rounded-full"
                 onClick={() => setSort('count')}
               >
                 수집 많은 순
@@ -123,7 +123,7 @@ export default function CollectionPage() {
               <select
                 value={selectedTag}
                 onChange={(event) => setSelectedTag(event.target.value)}
-                className="h-9 rounded-full border border-slate-200 bg-white px-3 text-xs text-slate-700"
+                className="rg-touch h-11 rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
               >
                 {availableTags.map((tag) => (
                   <option key={tag} value={tag}>
@@ -132,10 +132,10 @@ export default function CollectionPage() {
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="rg-stagger grid grid-cols-2 gap-4">
               {sortedCollections.map((collection) => (
                 <Link key={collection.id} href={`/courses/${collection.course.id}`}>
-                  <Card className="rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
+                  <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
                     <div className="relative h-28 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
                       {collection.course.thumbnailUrl ? (
                         <Image

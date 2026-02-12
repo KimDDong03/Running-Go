@@ -92,7 +92,7 @@ export default function CreateCourseDetailsPage() {
 
   if (sessionStatus === 'loading') {
     return (
-      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center p-6">
+      <div className="rg-page flex items-center justify-center p-6">
         <p className="text-slate-500">로그인 상태를 확인하는 중...</p>
       </div>
     );
@@ -100,17 +100,17 @@ export default function CreateCourseDetailsPage() {
 
   if (sessionStatus !== 'authenticated') {
     return (
-      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center p-6">
+      <div className="rg-page flex items-center justify-center p-6">
         <Card className="w-full max-w-md rounded-3xl border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
           <CardContent className="p-6 text-center space-y-4">
             <h1 className="text-xl font-semibold text-slate-900">로그인 후 코스를 저장할 수 있어요</h1>
             <p className="text-sm text-slate-600">작성자 권한 관리를 위해 로그인 사용자만 코스를 저장할 수 있습니다.</p>
             <div className="flex items-center justify-center gap-2">
               <Link href="/create">
-                <Button variant="outline" className="rounded-full">이전 단계</Button>
+                <Button variant="outline" className="rg-touch rounded-full">이전 단계</Button>
               </Link>
               <Link href="/login">
-                <Button className="rounded-full">로그인</Button>
+                <Button className="rg-touch rounded-full">로그인</Button>
               </Link>
             </div>
           </CardContent>
@@ -121,11 +121,11 @@ export default function CreateCourseDetailsPage() {
 
   if (!draft) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] flex items-center justify-center p-6">
+      <div className="rg-page flex items-center justify-center p-6">
         <div className="text-center">
           <p className="text-slate-500">저장된 코스 정보가 없습니다</p>
           <Link href="/create">
-            <Button className="mt-4 rounded-full">코스 만들기</Button>
+            <Button className="rg-touch mt-4 rounded-full">코스 만들기</Button>
           </Link>
         </div>
       </div>
@@ -133,10 +133,10 @@ export default function CreateCourseDetailsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] pb-24">
-      <header className="bg-white/75 backdrop-blur border-b border-white/60 px-4 py-4 flex items-center gap-2">
+    <div className="rg-page pb-24">
+      <header className="rg-page-header px-4 py-4 flex items-center gap-2">
         <Link href="/create">
-          <Button variant="ghost" size="icon" className="rounded-full">
+          <Button variant="ghost" size="icon" className="rg-touch-icon rounded-full">
             <ChevronLeft className="w-6 h-6" />
           </Button>
         </Link>
@@ -146,7 +146,7 @@ export default function CreateCourseDetailsPage() {
         </div>
       </header>
 
-      <main className="p-4 space-y-4">
+      <main className="rg-page-main rg-stagger p-4 space-y-4">
         <Card className="rounded-3xl border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
           <CardContent className="p-6 space-y-4">
             <div className="space-y-2">
@@ -174,7 +174,7 @@ export default function CreateCourseDetailsPage() {
                 id="difficulty"
                 value={difficulty}
                 onChange={(event) => setDifficulty(event.target.value as 'EASY' | 'MEDIUM' | 'HARD')}
-                className="w-full h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm"
+                className="rg-touch w-full h-12 rounded-2xl border border-white/70 bg-white/85 px-4 text-sm shadow-[0_10px_22px_-18px_rgba(15,23,42,0.6)]"
               >
                 <option value="EASY">쉬움</option>
                 <option value="MEDIUM">보통</option>
@@ -222,7 +222,7 @@ export default function CreateCourseDetailsPage() {
 
         <Button
           size="lg"
-          className="w-full h-14 text-lg rounded-2xl"
+          className="rg-touch w-full h-14 text-lg rounded-2xl"
           disabled={!title || createCourse.isPending || isDistanceOutOfRange}
           onClick={handleSubmit}
         >

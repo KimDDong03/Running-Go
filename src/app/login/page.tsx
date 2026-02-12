@@ -20,10 +20,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(1200px_circle_at_top,_#E6F4FF_0%,_#F8FAFC_45%,_#FFFFFF_100%)] p-6">
-      <div className="text-center space-y-4">
-        <h1 className="text-xl font-semibold text-slate-900">로그인</h1>
-        <Button onClick={() => signIn('google')} className="rounded-full">Google로 로그인</Button>
+    <div className="rg-page flex items-center justify-center p-6">
+      <div className="rg-glass-card w-full max-w-md rounded-[30px] p-8 text-center space-y-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-600">Running Go</p>
+        <h1 className="text-2xl font-semibold text-slate-900">러닝고에 로그인</h1>
+        <p className="text-sm text-slate-600">구글 계정으로 로그인하고 나만의 코스를 만들고 수집하세요.</p>
+        <Button onClick={() => signIn('google')} className="rg-touch h-12 w-full rounded-2xl">Google로 로그인</Button>
       </div>
     </div>
   );
