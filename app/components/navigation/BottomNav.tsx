@@ -50,8 +50,8 @@ export function BottomNav() {
             className={cn(
               'rg-touch-icon rg-press group relative flex h-12 min-w-[58px] items-center justify-center rounded-2xl px-2 text-slate-600 transition-all duration-300',
               isActive && !isCenter && 'bg-[linear-gradient(135deg,#e0f2fe_0%,#dbeafe_100%)] text-sky-800 shadow-[0_12px_24px_-18px_rgba(2,132,199,0.7)]',
-              isCenter && 'h-14 min-w-[64px] -mt-7 rounded-2xl bg-[linear-gradient(135deg,#0ea5e9_0%,#0284c7_100%)] text-white shadow-[0_18px_32px_-20px_rgba(14,165,233,0.95)]',
-              isCenter && isActive && 'scale-[1.03]'
+              isCenter && 'border border-sky-100/90 bg-[linear-gradient(135deg,#f0f9ff_0%,#e0f2fe_100%)] text-sky-700 shadow-[0_14px_24px_-20px_rgba(14,116,144,0.75)] ring-1 ring-white/70',
+              isCenter && isActive && 'bg-[linear-gradient(135deg,#e0f2fe_0%,#dbeafe_100%)] text-sky-800 shadow-[0_16px_26px_-18px_rgba(2,132,199,0.62)]'
             )}
           >
             {!isCenter && (
@@ -62,7 +62,7 @@ export function BottomNav() {
                 )}
               />
             )}
-            <Icon className={cn('relative h-5 w-5 transition-transform duration-300 group-hover:scale-110', !isCenter && isActive && 'scale-110', isCenter && 'h-6 w-6')} />
+            <Icon className={cn('relative h-5 w-5 transition-transform duration-300 group-hover:scale-110', !isCenter && isActive && 'scale-110')} />
             {!isCenter && (
               <span className={cn('relative mt-5 text-[11px] font-semibold tracking-tight', isActive ? 'text-sky-800' : 'text-slate-600')}>
                 {item.label}
