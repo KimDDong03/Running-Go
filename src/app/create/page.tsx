@@ -1,18 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
+import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { ChevronLeft, RotateCcw, Undo2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { ChevronLeft, LocateFixed, RotateCcw, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
-
-mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.dev.mapbox.token';
+import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
+import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
 
 interface Waypoint {
   lat: number;
@@ -24,31 +34,39 @@ const ALLOWED_DRAW_CLASSES = new Set([
   'path',
   'pedestrian',
   'footway',
+  'sidewalk',
+  'crossing',
   'steps',
-  'primary',
-  'secondary',
-  'tertiary',
-  'street',
+  'living_street',
+  'cycleway',
+  'unclassified',
   'residential',
   'service',
-  'unclassified',
-  'trunk',
-  'motorway',
   'track',
+  'street',
+  'road',
+  'minor',
+  'tertiary',
+  'secondary',
+  'primary',
 ]);
 
 const ROAD_LAYER_INCLUDE_KEYWORDS = [
   'road',
   'street',
-  'motorway',
-  'trunk',
-  'primary',
-  'secondary',
-  'tertiary',
-  'service',
   'path',
+  'walk',
+  'sidewalk',
   'pedestrian',
+  'footway',
+  'cycleway',
+  'living',
+  'residential',
+  'service',
   'track',
+  'tertiary',
+  'secondary',
+  'primary',
 ];
 
 const ROAD_LAYER_EXCLUDE_KEYWORDS = [
@@ -57,6 +75,8 @@ const ROAD_LAYER_EXCLUDE_KEYWORDS = [
   'ferry',
   'aeroway',
   'runway',
+  'motorway',
+  'trunk',
   'water',
   'building',
   'landuse',
@@ -64,7 +84,7 @@ const ROAD_LAYER_EXCLUDE_KEYWORDS = [
   'admin',
 ];
 
-const isRoadFeature = (feature: mapboxgl.MapboxGeoJSONFeature) => {
+const isRoadFeature = (feature: maplibregl.MapGeoJSONFeature) => {
   const layerType = feature.layer?.type;
   if (layerType !== 'line') {
     return false;
@@ -91,14 +111,17 @@ const isRoadFeature = (feature: mapboxgl.MapboxGeoJSONFeature) => {
   return ROAD_LAYER_INCLUDE_KEYWORDS.some((keyword) => layerId.includes(keyword));
 };
 
-const isRoadPoint = (mapInstance: mapboxgl.Map, point: mapboxgl.PointLike) => {
+const isRoadPoint = (mapInstance: maplibregl.Map, point: maplibregl.PointLike) => {
   const features = mapInstance.queryRenderedFeatures(point);
+  if (features.length === 0) {
+    return true;
+  }
   return features.some((feature) => isRoadFeature(feature));
 };
 
 export default function CreateCoursePage() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
+  const map = useRef<maplibregl.Map | null>(null);
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [totalDistance, setTotalDistance] = useState(0);
   const routeCoordinatesRef = useRef<[number, number][]>([]);
@@ -106,22 +129,34 @@ export default function CreateCoursePage() {
   const [segments, setSegments] = useState<{ coords: [number, number][]; distanceKm: number }[]>([]);
   const [drawMode, setDrawMode] = useState(false);
   const [drawnPoints, setDrawnPoints] = useState<{ lat: number; lng: number }[]>([]);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const [isLocating, setIsLocating] = useState(false);
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
   const waypointsRef = useRef<Waypoint[]>([]);
   const isRoutingRef = useRef(false);
   const addWaypointRef = useRef<(lat: number, lng: number) => void>(() => undefined);
   const segmentsRef = useRef<{ coords: [number, number][]; distanceKm: number }[]>([]);
   const mapLoadedRef = useRef(false);
   const drawnRef = useRef<{ lat: number; lng: number }[]>([]);
-  const handleDrawRef = useRef<(e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => void>(() => undefined);
+  const handleDrawRef = useRef<(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => void>(() => undefined);
   const isDrawingRef = useRef(false);
   const lastDrawRef = useRef<{ time: number; lat: number; lng: number } | null>(null);
   const drawRenderRef = useRef<{ rafId: number | null; coords: [number, number][] } | null>(null);
   const drawModeRef = useRef(false);
-  const currentLocationMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const currentLocationMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const currentLocationMarkerImageRef = useRef<string | null>(null);
   const lastRoadWarningRef = useRef(0);
+  const isAppliedRouteEditableRef = useRef(false);
+  const suppressMarkerClickRef = useRef(false);
   const router = useRouter();
   const { status: sessionStatus } = useSession();
+  const { data: profileSummary } = trpc.profile.summary.useQuery(undefined, {
+    enabled: sessionStatus === 'authenticated',
+  });
+
+  const setAppliedRouteEditable = useCallback((value: boolean) => {
+    isAppliedRouteEditableRef.current = value;
+  }, []);
 
   useEffect(() => {
     waypointsRef.current = waypoints;
@@ -168,41 +203,31 @@ export default function CreateCoursePage() {
   }, []);
 
   const fetchMatchedRoute = useCallback(async (points: { lat: number; lng: number }[]) => {
-    const token = mapboxgl.accessToken;
-    if (!token) {
-      toast.error('지도 토큰이 필요합니다');
-      return null;
-    }
-
     if (points.length < 2) {
       return null;
     }
 
     const coordinates = points.map((p) => `${p.lng},${p.lat}`).join(';');
-    const radiuses = points.map(() => '15').join(';');
-    const url = new URL(`https://api.mapbox.com/matching/v5/mapbox/walking/${coordinates}`);
+    const url = new URL(`https://router.project-osrm.org/route/v1/foot/${coordinates}`);
     url.searchParams.set('geometries', 'geojson');
     url.searchParams.set('overview', 'full');
-    url.searchParams.set('radiuses', radiuses);
-    url.searchParams.set('tidy', 'true');
-    url.searchParams.set('access_token', token);
 
     const response = await fetch(url.toString());
     if (!response.ok) {
-      toast.error('보행 경로를 가져오지 못했습니다');
+      toast.error('OSM 보행 경로를 가져오지 못했습니다');
       return null;
     }
 
     const data = await response.json();
-    const match = data.matchings?.[0];
-    if (!match) {
+    const route = data.routes?.[0];
+    if (!route) {
       toast.error('보행 경로가 없습니다');
       return null;
     }
 
     return {
-      coordinates: match.geometry.coordinates as [number, number][],
-      distanceKm: match.distance / 1000,
+      coordinates: route.geometry.coordinates as [number, number][],
+      distanceKm: route.distance / 1000,
     };
   }, []);
 
@@ -270,6 +295,27 @@ export default function CreateCoursePage() {
     }));
   }, [distanceMeters, sampleRoutePoints]);
 
+  const calculatePolylineDistanceKm = useCallback((coordinates: [number, number][]) => {
+    if (coordinates.length < 2) {
+      return 0;
+    }
+
+    let totalMeters = 0;
+    for (let i = 1; i < coordinates.length; i++) {
+      totalMeters += distanceMeters(
+        { lat: coordinates[i - 1][1], lng: coordinates[i - 1][0] },
+        { lat: coordinates[i][1], lng: coordinates[i][0] }
+      );
+    }
+
+    return totalMeters / 1000;
+  }, [distanceMeters]);
+
+  const clearWaypointMarkers = useCallback(() => {
+    markersRef.current.forEach((marker) => marker.remove());
+    markersRef.current = [];
+  }, []);
+
   const reduceDrawnPoints = useCallback((points: { lat: number; lng: number }[]) => {
     if (points.length <= 2) return points;
     const reduced: { lat: number; lng: number }[] = [points[0]];
@@ -287,14 +333,31 @@ export default function CreateCoursePage() {
     return reduced;
   }, [distanceMeters]);
 
+  const clearRouteLine = useCallback(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+    if (map.current.getLayer('route-main')) {
+      map.current.removeLayer('route-main');
+    }
+    if (map.current.getLayer('route-outline')) {
+      map.current.removeLayer('route-outline');
+    }
+    if (map.current.getSource('route')) {
+      map.current.removeSource('route');
+    }
+  }, []);
+
   // Update route line on map
   const updateRouteLine = useCallback((coordinates: [number, number][]) => {
-    if (!map.current || !map.current.isStyleLoaded() || coordinates.length < 2) return;
+    if (!map.current || !map.current.isStyleLoaded()) return;
+    if (coordinates.length < 2) {
+      clearRouteLine();
+      return;
+    }
 
     const sourceId = 'route';
 
     if (map.current.getSource(sourceId)) {
-      (map.current.getSource(sourceId) as mapboxgl.GeoJSONSource).setData({
+      (map.current.getSource(sourceId) as maplibregl.GeoJSONSource).setData({
         type: 'Feature',
         properties: {},
         geometry: {
@@ -316,7 +379,22 @@ export default function CreateCoursePage() {
       });
 
       map.current.addLayer({
-        id: sourceId,
+        id: 'route-outline',
+        type: 'line',
+        source: sourceId,
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 8,
+          'line-opacity': 0.9,
+        },
+      });
+
+      map.current.addLayer({
+        id: 'route-main',
         type: 'line',
         source: sourceId,
         layout: {
@@ -325,14 +403,139 @@ export default function CreateCoursePage() {
         },
         paint: {
           'line-color': '#0ea5e9',
-          'line-width': 4,
+          'line-width': 6,
+          'line-opacity': 0.98,
         },
       });
     }
-  }, []);
+  }, [clearRouteLine]);
+
+  const renderWaypointMarkers = useCallback((points: Waypoint[], markerMode: 'manual' | 'applied') => {
+    if (!map.current) return;
+
+    clearWaypointMarkers();
+
+    const rebuildRouteFromWaypoints = async (nextWaypoints: Waypoint[]) => {
+      setWaypoints(nextWaypoints);
+
+      if (nextWaypoints.length < 2) {
+        setSegments([]);
+        setTotalDistance(0);
+        routeCoordinatesRef.current = nextWaypoints.map((waypoint) => [waypoint.lng, waypoint.lat]);
+        updateRouteLine(routeCoordinatesRef.current);
+        return;
+      }
+
+      setIsRouting(true);
+      try {
+        const matched = await fetchMatchedRoute(nextWaypoints.map((waypoint) => ({ lat: waypoint.lat, lng: waypoint.lng })));
+        if (matched) {
+          routeCoordinatesRef.current = matched.coordinates;
+          setSegments([{ coords: matched.coordinates, distanceKm: matched.distanceKm }]);
+          setTotalDistance(matched.distanceKm);
+          updateRouteLine(matched.coordinates);
+          return;
+        }
+
+        const fallbackCoordinates = nextWaypoints.map((waypoint) => [waypoint.lng, waypoint.lat]) as [number, number][];
+        const fallbackDistanceKm = calculatePolylineDistanceKm(fallbackCoordinates);
+        routeCoordinatesRef.current = fallbackCoordinates;
+        setSegments([{ coords: fallbackCoordinates, distanceKm: fallbackDistanceKm }]);
+        setTotalDistance(fallbackDistanceKm);
+        updateRouteLine(fallbackCoordinates);
+      } finally {
+        setIsRouting(false);
+      }
+    };
+
+    points.forEach((point, index) => {
+      const markerButton = document.createElement('button');
+      markerButton.type = 'button';
+      markerButton.className = [
+        'h-6 w-6 rounded-full border-2 border-white',
+        'bg-sky-500 shadow-md text-white text-[10px] font-semibold',
+        'flex items-center justify-center',
+      ].join(' ');
+      markerButton.textContent = String(index + 1);
+      markerButton.title = markerMode === 'applied'
+        ? '클릭하면 이 경유지를 제외하고 경로를 다시 만듭니다'
+        : '클릭하면 이 경유지를 삭제합니다';
+
+      markerButton.onclick = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (suppressMarkerClickRef.current) {
+          suppressMarkerClickRef.current = false;
+          return;
+        }
+
+        if (markerMode === 'applied' && !isAppliedRouteEditableRef.current) {
+          return;
+        }
+
+        if (isRoutingRef.current) {
+          return;
+        }
+
+        const prev = waypointsRef.current;
+        if (index < 0 || index >= prev.length) {
+          return;
+        }
+
+        const nextWaypoints = prev
+          .filter((_, waypointIndex) => waypointIndex !== index)
+          .map((waypoint, waypointIndex) => ({ ...waypoint, order: waypointIndex }));
+
+        await rebuildRouteFromWaypoints(nextWaypoints);
+
+        renderWaypointMarkers(nextWaypoints, markerMode);
+      };
+
+      const marker = new maplibregl.Marker({ element: markerButton, anchor: 'center', draggable: true })
+        .setLngLat([point.lng, point.lat])
+        .addTo(map.current!);
+
+      let dragStart: { lat: number; lng: number } | null = null;
+      marker.on('dragstart', () => {
+        const start = marker.getLngLat();
+        dragStart = { lat: start.lat, lng: start.lng };
+      });
+
+      marker.on('dragend', async () => {
+        const current = marker.getLngLat();
+        const movedPoint = { lat: current.lat, lng: current.lng };
+        if (dragStart && distanceMeters(dragStart, movedPoint) < 3) {
+          return;
+        }
+
+        suppressMarkerClickRef.current = true;
+
+        if (isRoutingRef.current) {
+          return;
+        }
+
+        const prev = waypointsRef.current;
+        if (index < 0 || index >= prev.length) {
+          return;
+        }
+
+        const nextWaypoints = prev.map((waypoint, waypointIndex) => (
+          waypointIndex === index
+            ? { ...waypoint, lat: movedPoint.lat, lng: movedPoint.lng }
+            : waypoint
+        )).map((waypoint, waypointIndex) => ({ ...waypoint, order: waypointIndex }));
+
+        await rebuildRouteFromWaypoints(nextWaypoints);
+        renderWaypointMarkers(nextWaypoints, markerMode);
+      });
+
+      markersRef.current.push(marker);
+    });
+  }, [calculatePolylineDistanceKm, clearWaypointMarkers, distanceMeters, fetchMatchedRoute, updateRouteLine]);
 
   useEffect(() => {
-    handleDrawRef.current = (e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
+    handleDrawRef.current = (e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
       if (!drawMode || isRoutingRef.current || !isDrawingRef.current) return;
       if (e.originalEvent?.preventDefault) {
         e.originalEvent.preventDefault();
@@ -383,14 +586,14 @@ export default function CreateCoursePage() {
 
     if (!mapContainer.current) return;
 
-    map.current = new mapboxgl.Map({
+    map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: NAVER_LIKE_MAP_STYLE,
       center: [126.978, 37.5665], // Seoul
       zoom: 14,
     });
 
-    const handleClick = (e: mapboxgl.MapMouseEvent) => {
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
       if (drawModeRef.current) {
         return;
       }
@@ -414,12 +617,6 @@ export default function CreateCoursePage() {
       if (!mapInstance) return;
       applyKoreanMapLabels(mapInstance);
       applyRoadVisualStyle(mapInstance);
-      const layers = mapInstance.getStyle().layers ?? [];
-      layers.forEach((layer) => {
-        if (layer.type === 'symbol' && mapInstance.getLayer(layer.id)) {
-          mapInstance.setLayoutProperty(layer.id, 'visibility', 'none');
-        }
-      });
     };
 
     map.current.on('load', () => {
@@ -430,12 +627,15 @@ export default function CreateCoursePage() {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const center = [position.coords.longitude, position.coords.latitude] as [number, number];
+            const markerImage = profileSummary?.user.image ?? null;
             mapInstance?.setCenter(center);
             if (mapInstance) {
-              if (!currentLocationMarkerRef.current) {
-                currentLocationMarkerRef.current = new mapboxgl.Marker({ color: '#2563eb' })
+              if (!currentLocationMarkerRef.current || currentLocationMarkerImageRef.current !== markerImage) {
+                currentLocationMarkerRef.current?.remove();
+                currentLocationMarkerRef.current = new maplibregl.Marker({ element: createCurrentLocationMarkerElement(markerImage), anchor: 'center' })
                   .setLngLat(center)
                   .addTo(mapInstance);
+                currentLocationMarkerImageRef.current = markerImage;
               } else {
                 currentLocationMarkerRef.current.setLngLat(center);
               }
@@ -455,7 +655,7 @@ export default function CreateCoursePage() {
       map.current?.off('click', handleClick);
       map.current?.remove();
     };
-  }, [sessionStatus, showRoadOnlyWarning, updateRouteLine]);
+  }, [profileSummary?.user.image, sessionStatus, showRoadOnlyWarning, updateRouteLine]);
 
   const buildRouteCoordinates = useCallback((points: Waypoint[], pathSegments: { coords: [number, number][] }[]) => {
     if (points.length === 0) {
@@ -489,6 +689,7 @@ export default function CreateCoursePage() {
     const newWaypoint: Waypoint = { lat, lng, order: prev.length };
 
     if (prev.length === 0) {
+      setAppliedRouteEditable(false);
       setWaypoints([newWaypoint]);
       setSegments([]);
       const nextCoordinates: [number, number][] = [[lng, lat]];
@@ -496,44 +697,52 @@ export default function CreateCoursePage() {
       if (mapLoadedRef.current) {
         updateRouteLine(nextCoordinates);
       }
-      if (map.current) {
-        const marker = new mapboxgl.Marker({ color: '#0ea5e9' })
-          .setLngLat([lng, lat])
-          .addTo(map.current);
-        markersRef.current.push(marker);
-      }
+      renderWaypointMarkers([newWaypoint], 'manual');
       return;
     }
 
+    setAppliedRouteEditable(false);
     setWaypoints([...prev, newWaypoint]);
-    const directDistanceKm = distanceMeters(prev[prev.length - 1], newWaypoint) / 1000;
-    const lastCoordinate: [number, number] = [prev[prev.length - 1].lng, prev[prev.length - 1].lat];
-    const newCoordinate: [number, number] = [newWaypoint.lng, newWaypoint.lat];
-    const nextSegments: { coords: [number, number][]; distanceKm: number }[] = [
-      ...segmentsRef.current,
-      {
-        coords: [lastCoordinate, newCoordinate],
-        distanceKm: directDistanceKm,
-      },
-    ];
-    setSegments(nextSegments);
-    setTotalDistance((d) => d + directDistanceKm);
+    setIsRouting(true);
+    isRoutingRef.current = true;
 
-    const nextCoordinates = [...routeCoordinatesRef.current, [newWaypoint.lng, newWaypoint.lat]] as [number, number][];
-    routeCoordinatesRef.current = nextCoordinates;
-    if (mapLoadedRef.current) {
-      updateRouteLine(nextCoordinates);
+    try {
+      const lastCoordinate: [number, number] = [prev[prev.length - 1].lng, prev[prev.length - 1].lat];
+      const newCoordinate: [number, number] = [newWaypoint.lng, newWaypoint.lat];
+      const matched = await fetchMatchedRoute([
+        { lat: prev[prev.length - 1].lat, lng: prev[prev.length - 1].lng },
+        { lat: newWaypoint.lat, lng: newWaypoint.lng },
+      ]);
+
+      const segmentCoordinates = matched?.coordinates?.length
+        ? matched.coordinates
+        : [lastCoordinate, newCoordinate];
+      const segmentDistanceKm = matched?.distanceKm
+        ?? (distanceMeters(prev[prev.length - 1], newWaypoint) / 1000);
+
+      const nextSegments: { coords: [number, number][]; distanceKm: number }[] = [
+        ...segmentsRef.current,
+        {
+          coords: segmentCoordinates,
+          distanceKm: segmentDistanceKm,
+        },
+      ];
+      setSegments(nextSegments);
+      setTotalDistance((d) => d + segmentDistanceKm);
+
+      const nextWaypoints = [...prev, newWaypoint];
+      const nextCoordinates = buildRouteCoordinates(nextWaypoints, nextSegments);
+      routeCoordinatesRef.current = nextCoordinates;
+      if (mapLoadedRef.current) {
+        updateRouteLine(nextCoordinates);
+      }
+
+      renderWaypointMarkers(nextWaypoints, 'manual');
+    } finally {
+      setIsRouting(false);
+      isRoutingRef.current = false;
     }
-
-    if (map.current) {
-      const marker = new mapboxgl.Marker({ color: '#0ea5e9' })
-        .setLngLat([lng, lat])
-        .addTo(map.current);
-      markersRef.current.push(marker);
-    }
-
-    setIsRouting(false);
-  }, [distanceMeters, updateRouteLine]);
+  }, [buildRouteCoordinates, distanceMeters, fetchMatchedRoute, renderWaypointMarkers, updateRouteLine]);
 
   useEffect(() => {
     addWaypointRef.current = addWaypoint;
@@ -621,10 +830,7 @@ export default function CreateCoursePage() {
     const nextWaypoints = prev.slice(0, -1);
     setWaypoints(nextWaypoints);
 
-    if (markersRef.current.length > 0) {
-      const marker = markersRef.current.pop();
-      marker?.remove();
-    }
+    setAppliedRouteEditable(false);
 
     if (segmentsRef.current.length > 0) {
       const lastSegment = segmentsRef.current[segmentsRef.current.length - 1];
@@ -646,11 +852,14 @@ export default function CreateCoursePage() {
         updateRouteLine(routeCoordinatesRef.current);
       }
     }
+
+    renderWaypointMarkers(nextWaypoints, 'manual');
   };
 
   // Clear all waypoints
   const clearWaypoints = () => {
     setWaypoints([]);
+    setAppliedRouteEditable(false);
     setTotalDistance(0);
     routeCoordinatesRef.current = [];
     setIsRouting(false);
@@ -659,18 +868,45 @@ export default function CreateCoursePage() {
     drawnRef.current = [];
     
     // Remove markers
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = [];
+    clearWaypointMarkers();
 
     // Remove line
-      if (map.current) {
-        if (map.current.getLayer('route')) {
-          map.current.removeLayer('route');
+    clearRouteLine();
+  };
+
+  const moveToCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('현재 위치를 가져올 수 없습니다');
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const center: [number, number] = [position.coords.longitude, position.coords.latitude];
+        const markerImage = profileSummary?.user.image ?? null;
+        map.current?.easeTo({ center, zoom: 16, duration: 500 });
+
+        if (map.current) {
+          if (!currentLocationMarkerRef.current || currentLocationMarkerImageRef.current !== markerImage) {
+            currentLocationMarkerRef.current?.remove();
+            currentLocationMarkerRef.current = new maplibregl.Marker({ element: createCurrentLocationMarkerElement(markerImage), anchor: 'center' })
+              .setLngLat(center)
+              .addTo(map.current);
+            currentLocationMarkerImageRef.current = markerImage;
+          } else {
+            currentLocationMarkerRef.current.setLngLat(center);
+          }
         }
-        if (map.current.getSource('route')) {
-          map.current.removeSource('route');
-        }
-      }
+
+        setIsLocating(false);
+      },
+      () => {
+        setIsLocating(false);
+        toast.error('위치 권한을 허용하면 현재 위치로 이동할 수 있어요');
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
   };
 
 
@@ -681,46 +917,97 @@ export default function CreateCoursePage() {
     }
 
     setIsRouting(true);
-    const reducedPoints = reduceDrawnPoints(points);
-    const matched = await fetchMatchedRoute(reducedPoints);
-    if (!matched) {
+    isRoutingRef.current = true;
+
+    try {
+      const reducedPoints = reduceDrawnPoints(points);
+      const existingWaypoints = waypointsRef.current;
+      const isAppendMode = existingWaypoints.length > 0;
+      const routeCoordinates = (isAppendMode
+        ? [
+          [existingWaypoints[existingWaypoints.length - 1].lng, existingWaypoints[existingWaypoints.length - 1].lat] as [number, number],
+          ...reducedPoints.map((point) => [point.lng, point.lat] as [number, number]),
+        ]
+        : reducedPoints.map((point) => [point.lng, point.lat] as [number, number])
+      );
+      const routeDistanceKm = calculatePolylineDistanceKm(routeCoordinates);
+      const sampleCount = Math.min(30, Math.max(10, Math.ceil(routeCoordinates.length / 40)));
+      const sampled = sampleRoutePoints(routeCoordinates, sampleCount);
+
+      if (!isAppendMode) {
+        const nextWaypoints = sampled.map((point, index) => ({
+          lat: point.lat,
+          lng: point.lng,
+          order: index,
+        }));
+
+        clearWaypoints();
+        setWaypoints(nextWaypoints);
+        setSegments([{ coords: routeCoordinates, distanceKm: routeDistanceKm }]);
+        setTotalDistance(routeDistanceKm);
+        setAppliedRouteEditable(false);
+        routeCoordinatesRef.current = routeCoordinates;
+        if (mapLoadedRef.current) {
+          updateRouteLine(routeCoordinates);
+        }
+
+        renderWaypointMarkers(nextWaypoints, 'manual');
+      } else {
+        const appendedSampled = sampled.slice(1);
+        const rawAppendedPoints = appendedSampled.length > 0
+          ? appendedSampled
+          : [{ lat: routeCoordinates[routeCoordinates.length - 1][1], lng: routeCoordinates[routeCoordinates.length - 1][0] }];
+
+        const compactAppendedPoints = rawAppendedPoints.reduce<{ lat: number; lng: number }[]>((acc, point) => {
+          const prevPoint = acc.length > 0 ? acc[acc.length - 1] : existingWaypoints[existingWaypoints.length - 1];
+          if (!prevPoint) {
+            acc.push(point);
+            return acc;
+          }
+
+          if (distanceMeters(prevPoint, point) < 8) {
+            return acc;
+          }
+
+          acc.push(point);
+          return acc;
+        }, []);
+
+        if (compactAppendedPoints.length === 0) {
+          toast.error('기존 경로와 거의 겹쳐서 새 waypoint가 추가되지 않았어요');
+          return;
+        }
+
+        const appendedWaypoints = compactAppendedPoints.map((point, index) => ({
+          lat: point.lat,
+          lng: point.lng,
+          order: existingWaypoints.length + index,
+        }));
+
+        const nextWaypoints = [...existingWaypoints, ...appendedWaypoints];
+        const nextSegments = [...segmentsRef.current, { coords: routeCoordinates, distanceKm: routeDistanceKm }];
+        const nextCoordinates = buildRouteCoordinates(nextWaypoints, nextSegments);
+
+        setWaypoints(nextWaypoints);
+        setSegments(nextSegments);
+        setTotalDistance((distance) => distance + routeDistanceKm);
+        setAppliedRouteEditable(false);
+        routeCoordinatesRef.current = nextCoordinates;
+        if (mapLoadedRef.current) {
+          updateRouteLine(nextCoordinates);
+        }
+
+        renderWaypointMarkers(nextWaypoints, 'manual');
+      }
+    } finally {
       setIsRouting(false);
-      return;
+      isRoutingRef.current = false;
+      setDrawMode(false);
+      setDrawnPoints([]);
+      drawnRef.current = [];
+      isDrawingRef.current = false;
+      map.current?.dragPan.enable();
     }
-
-    const routeCoordinates = matched.coordinates;
-    const sampleCount = Math.min(30, Math.max(10, Math.ceil(routeCoordinates.length / 40)));
-    const sampled = sampleRoutePoints(routeCoordinates, sampleCount);
-    const nextWaypoints = sampled.map((point, index) => ({
-      lat: point.lat,
-      lng: point.lng,
-      order: index,
-    }));
-
-    clearWaypoints();
-    setWaypoints(nextWaypoints);
-    setSegments([{ coords: routeCoordinates, distanceKm: matched.distanceKm }]);
-    setTotalDistance(matched.distanceKm);
-    routeCoordinatesRef.current = routeCoordinates;
-    if (mapLoadedRef.current) {
-      updateRouteLine(routeCoordinates);
-    }
-
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = [];
-    if (map.current) {
-      nextWaypoints.forEach((point) => {
-        const marker = new mapboxgl.Marker({ color: '#0ea5e9' })
-          .setLngLat([point.lng, point.lat])
-          .addTo(map.current!);
-        markersRef.current.push(marker);
-      });
-    }
-
-    setIsRouting(false);
-    setDrawMode(false);
-    isDrawingRef.current = false;
-    map.current?.dragPan.enable();
   };
 
   const isValid = waypoints.length >= 5 && waypoints.length <= 30;
@@ -771,38 +1058,84 @@ export default function CreateCoursePage() {
           <Button
             variant="ghost"
             size="icon"
-            className="rg-touch-icon rounded-full"
+            className="rg-touch-icon rg-press rounded-full border border-white/80 bg-white/90 text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
             onClick={undoLastWaypoint}
             disabled={waypoints.length === 0 || isRouting}
+            aria-label="이전 단계로 되돌리기"
+            title="이전"
           >
             <Undo2 className="w-5 h-5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rg-touch-icon rounded-full"
-            onClick={clearWaypoints}
-            disabled={waypoints.length === 0 || isRouting}
-          >
-            <RotateCcw className="w-5 h-5" />
-          </Button>
+          <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rg-touch-icon rg-press rounded-full border border-white/80 bg-white/90 text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
+                disabled={waypoints.length === 0 || isRouting}
+                aria-label="현재 경로 초기화"
+                title="초기화"
+              >
+                <RotateCcw className="w-5 h-5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
+              <DialogHeader>
+                <DialogTitle className="text-slate-900">경로를 초기화할까요?</DialogTitle>
+                <DialogDescription className="text-slate-600">
+                  현재 추가한 마커와 동선이 모두 삭제됩니다. 이 작업은 되돌릴 수 없어요.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => setIsClearDialogOpen(false)}
+                >
+                  취소
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="rounded-full"
+                  onClick={() => {
+                    clearWaypoints();
+                    setIsClearDialogOpen(false);
+                  }}
+                >
+                  초기화
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </header>
 
       {/* Map */}
       <div className="flex-1 relative">
         <div ref={mapContainer} className="w-full h-full" />
+
+        <Button
+          type="button"
+          variant="ghost"
+          aria-label="내 현재 위치로 이동"
+          className={`${LOCATION_FAB_BASE_CLASS} ${LOCATION_FAB_TRANSITION_CLASS}`}
+          style={{ bottom: getLocationFabBottom(24) }}
+          onClick={moveToCurrentLocation}
+          disabled={isLocating}
+        >
+          <LocateFixed className="h-5 w-5" />
+        </Button>
         
         {/* Instructions */}
         <div className="absolute top-4 left-4 right-4 rg-soft-panel p-4">
-          <p className="text-sm text-slate-600 text-center">
-            {isRouting
-              ? '보행 경로를 계산 중입니다'
-              : drawMode
-                ? '지도를 드래그해서 선을 그려주세요'
+            <p className="text-sm text-slate-600 text-center">
+              {isRouting
+                ? '보행 경로를 계산 중입니다'
+                : drawMode
+                ? '지도를 드래그해서 선을 그린 뒤 드로잉 적용을 눌러주세요'
                 : '지도를 터치하거나 프리셋을 적용하세요'}
-          </p>
-        </div>
+            </p>
+          </div>
       </div>
 
       {/* Bottom Panel */}
@@ -854,7 +1187,29 @@ export default function CreateCoursePage() {
               >
                 드로잉 적용
               </Button>
+              <Button
+                size="lg"
+                className="rg-touch h-12 rounded-2xl"
+                variant="outline"
+                onClick={() => {
+                  setDrawnPoints([]);
+                  drawnRef.current = [];
+                  if (mapLoadedRef.current) {
+                    if (routeCoordinatesRef.current.length >= 2) {
+                      updateRouteLine(routeCoordinatesRef.current);
+                    } else {
+                      clearRouteLine();
+                    }
+                  }
+                }}
+                disabled={isRouting || !drawMode || drawnPoints.length === 0}
+              >
+                드로잉 지우기
+              </Button>
             </div>
+            {drawMode ? (
+              <p className="text-xs text-slate-500">드로잉 포인트 {drawnPoints.length}개</p>
+            ) : null}
           </div>
 
           <Button

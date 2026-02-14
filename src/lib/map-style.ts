@@ -1,172 +1,9 @@
-import mapboxgl from 'mapbox-gl';
+import type { Map } from 'maplibre-gl';
 
-export const NAVER_LIKE_MAP_STYLE_ID = 'mapbox/navigation-day-v1';
-export const NAVER_LIKE_MAP_STYLE = `mapbox://styles/${NAVER_LIKE_MAP_STYLE_ID}`;
+export const NAVER_LIKE_MAP_STYLE = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 
-const KOREAN_NAME_EXPRESSION = [
-  'coalesce',
-  ['get', 'name_ko'],
-  ['get', 'name_kr'],
-  ['get', 'name_local'],
-  ['get', 'name'],
-] as const;
-
-const isNameProperty = (value: unknown) => {
-  if (typeof value !== 'string') return false;
-  return value === 'name' || value === 'name_en' || value === 'name:en' || value.startsWith('name_');
-};
-
-const localizeTextFieldExpression = (value: unknown): unknown => {
-  if (typeof value === 'string') {
-    if (value === '{name}' || value === '{name_en}' || value === '{name:en}') {
-      return KOREAN_NAME_EXPRESSION;
-    }
-    return value;
-  }
-
-  if (!Array.isArray(value) || value.length === 0) {
-    return value;
-  }
-
-  const [operator, ...rest] = value;
-
-  if (operator === 'get' && isNameProperty(rest[0])) {
-    return KOREAN_NAME_EXPRESSION;
-  }
-
-  return [operator, ...rest.map((entry) => localizeTextFieldExpression(entry))];
-};
-
-const ROAD_LINE_KEYWORDS = [
-  'road',
-  'street',
-  'motorway',
-  'trunk',
-  'primary',
-  'secondary',
-  'tertiary',
-  'service',
-  'path',
-  'pedestrian',
-  'track',
-];
-
-const NON_ROAD_LINE_KEYWORDS = [
-  'rail',
-  'ferry',
-  'subway',
-  'tram',
-  'aeroway',
-  'runway',
-  'river',
-  'waterway',
-  'boundary',
-];
-
-const ROAD_BADGE_KEYWORDS = [
-  'shield',
-  'road-number',
-  'route-number',
-  'highway-number',
-  'motorway-number',
-  'junction-number',
-];
-
-const LANDMARK_LABEL_KEYWORDS = [
-  'poi',
-  'landmark',
-  'place-label',
-  'settlement',
-  'town',
-  'village',
-  'city',
-];
-
-const WIDE_AREA_LABEL_KEYWORDS = [
-  'settlement',
-  'place-label',
-  'state-label',
-  'country-label',
-  'city',
-  'town',
-  'village',
-];
-
-const NON_LANDMARK_LABEL_KEYWORDS = [
-  'road',
-  'street',
-  'shield',
-  'number',
-  'route',
-  'motorway',
-  'transit',
-  'airport',
-  'aeroway',
-  'rail',
-  'ferry',
-  'waterway',
-];
-
-const includesAnyKeyword = (value: string, keywords: readonly string[]) => {
-  return keywords.some((keyword) => value.includes(keyword));
-};
-
-const isRoadLineLayerId = (layerId: string) => {
-  const id = layerId.toLowerCase();
-  if (includesAnyKeyword(id, NON_ROAD_LINE_KEYWORDS)) {
-    return false;
-  }
-  return includesAnyKeyword(id, ROAD_LINE_KEYWORDS);
-};
-
-const shouldHideRoadBadgeLayer = (map: mapboxgl.Map, layerId: string) => {
-  const normalizedId = layerId.toLowerCase();
-  if (includesAnyKeyword(normalizedId, ROAD_BADGE_KEYWORDS)) {
-    return true;
-  }
-
-  const iconImage = map.getLayoutProperty(layerId, 'icon-image');
-  if (!iconImage) {
-    return false;
-  }
-
-  const serialized = typeof iconImage === 'string'
-    ? iconImage.toLowerCase()
-    : JSON.stringify(iconImage).toLowerCase();
-
-  return includesAnyKeyword(serialized, ROAD_BADGE_KEYWORDS);
-};
-
-const isLandmarkLabelLayerId = (layerId: string) => {
-  const id = layerId.toLowerCase();
-
-  if (includesAnyKeyword(id, NON_LANDMARK_LABEL_KEYWORDS)) {
-    return false;
-  }
-
-  return includesAnyKeyword(id, LANDMARK_LABEL_KEYWORDS);
-};
-
-const isWideAreaLabelLayerId = (layerId: string) => {
-  const id = layerId.toLowerCase();
-  return includesAnyKeyword(id, WIDE_AREA_LABEL_KEYWORDS);
-};
-
-export const applyKoreanMapLabels = (map: mapboxgl.Map) => {
-  const mapWithConfig = map as mapboxgl.Map & {
-    setConfigProperty?: (importId: string, configName: string, value: unknown) => void;
-  };
-
-  if (typeof mapWithConfig.setConfigProperty === 'function') {
-    try {
-      mapWithConfig.setConfigProperty('basemap', 'language', 'ko');
-      mapWithConfig.setConfigProperty('basemap', 'showPointOfInterestLabels', true);
-      mapWithConfig.setConfigProperty('basemap', 'showPlaceLabels', true);
-    } catch {
-      // Continue with expression-based fallback below.
-    }
-  }
-
+export const applyKoreanMapLabels = (_map: Map) => {
+  const map = _map;
   const layers = map.getStyle().layers ?? [];
 
   layers.forEach((layer) => {
@@ -174,114 +11,136 @@ export const applyKoreanMapLabels = (map: mapboxgl.Map) => {
       return;
     }
 
-    const textField = map.getLayoutProperty(layer.id, 'text-field');
-    if (!textField) {
+    const layout = layer.layout as { 'text-field'?: unknown } | undefined;
+    if (!layout || layout['text-field'] === undefined) {
       return;
     }
 
-    const localized = localizeTextFieldExpression(textField);
+    const layerId = layer.id.toLowerCase();
+    const sourceLayer = (layer as { 'source-layer'?: string })['source-layer']?.toLowerCase() ?? '';
+    const looksLikePlaceLabel =
+      layerId.includes('place')
+      || layerId.includes('country')
+      || layerId.includes('state')
+      || layerId.includes('settlement')
+      || sourceLayer.includes('place');
 
-    if (JSON.stringify(localized) === JSON.stringify(textField)) {
+    if (!looksLikePlaceLabel) {
       return;
     }
 
-    try {
-      map.setLayoutProperty(layer.id, 'text-field', localized as mapboxgl.Expression);
-    } catch {
-      // Some custom style expressions may be immutable/unsupported; skip safely.
-    }
+    map.setLayoutProperty(layer.id, 'text-field', [
+      'coalesce',
+      ['get', 'name:ko'],
+      ['get', 'name_ko'],
+      ['get', 'name'],
+      ['get', 'name_en'],
+    ]);
   });
 };
 
-export const applyRoadVisualStyle = (map: mapboxgl.Map) => {
+const ROAD_LABEL_ID_KEYWORDS = [
+  'road',
+  'street',
+  'highway',
+  'transportation_name',
+  'housenumber',
+  'address',
+  'path',
+  'pedestrian',
+  'cycleway',
+  'shield',
+];
+
+const ROAD_LABEL_SOURCE_KEYWORDS = ['transportation_name', 'housenumber'];
+
+const KEEP_LABEL_ID_KEYWORDS = [
+  'place',
+  'poi',
+  'airport',
+  'water',
+  'marine',
+  'country',
+  'state',
+  'settlement',
+  'mountain',
+  'landmark',
+  'park',
+  'building',
+];
+
+const WALKABLE_LINE_KEYWORDS = [
+  'path',
+  'pedestrian',
+  'footway',
+  'sidewalk',
+  'track',
+  'steps',
+  'cycleway',
+  'living',
+  'service',
+  'minor',
+];
+
+const VEHICLE_MAJOR_LINE_KEYWORDS = ['motorway', 'trunk', 'primary'];
+
+export const applyRoadVisualStyle = (map: Map) => {
   const layers = map.getStyle().layers ?? [];
 
   layers.forEach((layer) => {
-    if (!map.getLayer(layer.id)) {
+    if (layer.type !== 'symbol' || !map.getLayer(layer.id)) {
       return;
     }
 
-    if (layer.type === 'symbol') {
-      if (!shouldHideRoadBadgeLayer(map, layer.id)) {
-        if (!isLandmarkLabelLayerId(layer.id)) {
-          return;
-        }
+    const layerId = layer.id.toLowerCase();
+    const sourceLayer = (layer as { 'source-layer'?: string })['source-layer']?.toLowerCase() ?? '';
 
-        try {
-          const isWideAreaLayer = isWideAreaLabelLayerId(layer.id);
-
-          map.setLayoutProperty(layer.id, 'visibility', 'visible');
-          map.setLayoutProperty(
-            layer.id,
-            'text-size',
-            isWideAreaLayer
-              ? [
-                  'interpolate',
-                  ['linear'],
-                  ['zoom'],
-                  4,
-                  11,
-                  8,
-                  13,
-                  12,
-                  15,
-                ]
-              : [
-                  'interpolate',
-                  ['linear'],
-                  ['zoom'],
-                  10,
-                  10,
-                  14,
-                  12,
-                  17,
-                  13,
-                ]
-          );
-          map.setLayerZoomRange(layer.id, isWideAreaLayer ? 4 : 10, 24);
-          map.setPaintProperty(layer.id, 'text-color', '#1f2937');
-          map.setPaintProperty(layer.id, 'text-halo-color', '#ffffff');
-          map.setPaintProperty(layer.id, 'text-halo-width', 1.2);
-          if (isWideAreaLayer) {
-            map.setPaintProperty(layer.id, 'text-opacity', [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              4,
-              0.92,
-              10,
-              1,
-            ]);
-          }
-        } catch {
-          // Some symbol layers may not support these overrides; skip safely.
-        }
-
-        return;
-      }
-
-      try {
-        map.setLayoutProperty(layer.id, 'visibility', 'none');
-      } catch {
-        // Some symbol layers may be immutable; skip safely.
-      }
-
+    if (KEEP_LABEL_ID_KEYWORDS.some((keyword) => layerId.includes(keyword))) {
       return;
     }
 
-    if (layer.type !== 'line') {
+    const isRoadLabelById = ROAD_LABEL_ID_KEYWORDS.some((keyword) => layerId.includes(keyword));
+    const isRoadLabelBySource = ROAD_LABEL_SOURCE_KEYWORDS.some((keyword) => sourceLayer.includes(keyword));
+
+    if (!isRoadLabelById && !isRoadLabelBySource) {
       return;
     }
 
-    if (!isRoadLineLayerId(layer.id)) {
+    map.setLayoutProperty(layer.id, 'visibility', 'none');
+  });
+
+  layers.forEach((layer) => {
+    if (layer.type !== 'line' || !map.getLayer(layer.id)) {
       return;
     }
 
-    try {
-      map.setPaintProperty(layer.id, 'line-color', '#cfd7e3');
+    const layerId = layer.id.toLowerCase();
+
+    const isWalkableLine = WALKABLE_LINE_KEYWORDS.some((keyword) => layerId.includes(keyword));
+    if (isWalkableLine) {
+      map.setPaintProperty(layer.id, 'line-width', [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        11,
+        1.2,
+        13,
+        2.2,
+        15,
+        4,
+        17,
+        6,
+        19,
+        9,
+      ]);
       map.setPaintProperty(layer.id, 'line-opacity', 0.95);
-    } catch {
-      // Not all line layers support direct overrides; skip safely.
+      map.setPaintProperty(layer.id, 'line-color', '#475569');
+      return;
+    }
+
+    const isMajorVehicleLine = VEHICLE_MAJOR_LINE_KEYWORDS.some((keyword) => layerId.includes(keyword));
+    if (isMajorVehicleLine) {
+      map.setPaintProperty(layer.id, 'line-opacity', 0.65);
     }
   });
 };

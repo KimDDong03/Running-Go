@@ -1,10 +1,8 @@
 'use client';
 
 import { useState, useCallback, useMemo, useRef } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
-
-mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.dev.mapbox.token';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface Waypoint {
   lat: number;
@@ -19,12 +17,12 @@ interface UseCourseDrawingReturn {
   clearWaypoints: () => void;
   totalDistance: number;
   isValid: boolean;
-  mapRef: React.RefObject<mapboxgl.Map | null>;
+  mapRef: React.RefObject<maplibregl.Map | null>;
 }
 
 export function useCourseDrawing(): UseCourseDrawingReturn {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
 
   // Calculate distance between two points using Haversine formula
   const calculateDistance = (p1: { lat: number; lng: number }, p2: { lat: number; lng: number }): number => {

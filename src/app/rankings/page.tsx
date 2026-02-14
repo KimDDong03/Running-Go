@@ -4,13 +4,12 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { trpc } from '@/components/providers/TRPCProvider';
-import { clientEnv } from '@/lib/env';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChevronLeft } from 'lucide-react';
-import { getTier } from '@/lib/tier';
-import { NAVER_LIKE_MAP_STYLE_ID } from '@/lib/map-style';
+import { getCollectorTier, getCreatorTier } from '@/lib/tier';
+import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 
 const tabs = [
   { id: 'popular', label: '인기코스' },
@@ -29,50 +28,13 @@ export default function RankingsPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['id']>('popular');
   const [period, setPeriod] = useState<(typeof periods)[number]['id']>('ALL_TIME');
   const { data, isError, refetch } = trpc.ranking.list.useQuery({ period });
-  const mapboxToken = clientEnv.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
   const maxPathPoints = 50;
-  const canUseMap = Boolean(mapboxToken);
 
   const rankLabel = (index: number) => {
     if (index === 0) return '🥇';
     if (index === 1) return '🥈';
     if (index === 2) return '🥉';
     return `${index + 1}.`;
-  };
-
-  const getMapImageUrl = (lat: number, lng: number) => {
-    const width = 240;
-    const height = 160;
-    const zoom = 13;
-    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${lng},${lat},${zoom},0/${width}x${height}?access_token=${mapboxToken}`;
-  };
-
-  const encodePolyline = (points: { lat: number; lng: number }[]) => {
-    let result = '';
-    let prevLat = 0;
-    let prevLng = 0;
-
-    points.forEach((point) => {
-      const lat = Math.round(point.lat * 1e5);
-      const lng = Math.round(point.lng * 1e5);
-      const dLat = lat - prevLat;
-      const dLng = lng - prevLng;
-      prevLat = lat;
-      prevLng = lng;
-
-      [dLat, dLng].forEach((value) => {
-        let shifted = value << 1;
-        if (value < 0) shifted = ~shifted;
-        let chunk = shifted;
-        while (chunk >= 0x20) {
-          result += String.fromCharCode((0x20 | (chunk & 0x1f)) + 63);
-          chunk >>= 5;
-        }
-        result += String.fromCharCode(chunk + 63);
-      });
-    });
-
-    return result;
   };
 
   const samplePath = (points: { lat: number; lng: number }[]) => {
@@ -88,12 +50,8 @@ export default function RankingsPage() {
     return sampled;
   };
 
-  const getMapPathImageUrl = (points: { lat: number; lng: number }[]) => {
-    const width = 240;
-    const height = 160;
-    const path = encodePolyline(samplePath(points));
-    const overlay = `path-4+0ea5e9(${encodeURIComponent(path)})`;
-    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${overlay}/auto/${width}x${height}?padding=40&access_token=${mapboxToken}`;
+  const getPreviewImageUrl = (points: { lat: number; lng: number }[], center: { lat: number; lng: number }) => {
+    return getCoursePreviewImageUrl(samplePath(points), center, { width: 240, height: 160 });
   };
 
   return (
@@ -156,32 +114,20 @@ export default function RankingsPage() {
                     <CardContent className="p-3">
                       <div className="flex items-center gap-3">
                         <div className="relative h-24 w-32 flex-shrink-0 overflow-hidden rounded-2xl border border-white/80 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.55)]">
-                          {canUseMap && Array.isArray(course.waypoints) ? (
-                            <Image
-                              src={(() => {
-                                const raw = course.waypoints as { lat: number; lng: number }[];
-                                return raw.length >= 2
-                                  ? getMapPathImageUrl(raw)
-                                  : getMapImageUrl(course.centerLat, course.centerLng);
-                              })()}
-                              alt={`${course.title} 지도`}
-                              fill
-                              sizes="112px"
-                              className="object-cover"
-                              quality={70}
-                              unoptimized
-                            />
-                          ) : canUseMap ? (
-                            <Image
-                              src={getMapImageUrl(course.centerLat, course.centerLng)}
-                              alt={`${course.title} 지도`}
-                              fill
-                              sizes="112px"
-                              className="object-cover"
-                              quality={70}
-                              unoptimized
-                            />
-                          ) : null}
+                          <Image
+                            src={(() => {
+                              const raw = Array.isArray(course.waypoints)
+                                ? (course.waypoints as { lat: number; lng: number }[])
+                                : [];
+                              return getPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
+                            })()}
+                            alt={`${course.title} 지도`}
+                            fill
+                            sizes="112px"
+                            className="object-cover"
+                            quality={70}
+                            unoptimized
+                          />
                         </div>
                         <div className="flex-1 p-1 pr-2 flex items-center justify-between gap-3">
                           <div>
@@ -205,15 +151,16 @@ export default function RankingsPage() {
           <div className="rg-stagger space-y-3">
             {data?.collectorRankings.length ? (
               data.collectorRankings.map((ranking, index) => (
-                <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="font-medium">
-                      {rankLabel(index)} {ranking.name ?? '익명'}
-                      <span className="ml-2">{getTier(ranking.collectedCount).icon}</span>
-                    </div>
-                    <div className="text-sm text-slate-500">{ranking.score}개</div>
-                  </CardContent>
-                </Card>
+                  <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
+                    <CardContent className="p-4 flex items-center justify-between">
+                      <div className="font-medium">
+                        {rankLabel(index)} {ranking.name ?? '익명'}
+                        <span className="ml-2">{getCollectorTier(ranking.collectedCount).icon}</span>
+                        <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">탐험가</span>
+                      </div>
+                      <div className="text-sm text-slate-500">{ranking.score}개</div>
+                    </CardContent>
+                  </Card>
               ))
             ) : (
               <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
@@ -225,15 +172,16 @@ export default function RankingsPage() {
           <div className="rg-stagger space-y-3">
             {data?.creatorRankings.length ? (
               data.creatorRankings.map((ranking, index) => (
-                <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="font-medium">
-                      {rankLabel(index)} {ranking.name ?? '익명'}
-                      <span className="ml-2">{getTier(ranking.collectedCount).icon}</span>
-                    </div>
-                    <div className="text-sm text-slate-500">{ranking.score}❤️</div>
-                  </CardContent>
-                </Card>
+                  <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
+                    <CardContent className="p-4 flex items-center justify-between">
+                      <div className="font-medium">
+                        {rankLabel(index)} {ranking.name ?? '익명'}
+                        <span className="ml-2">{getCreatorTier(ranking.score).icon}</span>
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">설계자</span>
+                      </div>
+                      <div className="text-sm text-slate-500">{ranking.score}❤️</div>
+                    </CardContent>
+                  </Card>
               ))
             ) : (
               <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>

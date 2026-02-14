@@ -2,15 +2,23 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { LocateFixed, Pause, Play, Square } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ChevronLeft, LocateFixed, Pause, Play, Square } from 'lucide-react';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
-
-mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.dev.mapbox.token';
+import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
+import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
 
 interface GPSPoint {
   lat: number;
@@ -19,9 +27,14 @@ interface GPSPoint {
   accuracy: number;
 }
 
+const MIN_POINT_INTERVAL_MS = 3000;
+const MAX_ALLOWED_ACCURACY_METERS = 20;
+const MIN_MOVEMENT_METERS = 2;
+const MAX_RUNNING_SPEED_MPS = 8.5;
+
 function RunPageContent() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
+  const map = useRef<maplibregl.Map | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [hasPath, setHasPath] = useState(false);
@@ -30,11 +43,13 @@ function RunPageContent() {
   const [duration, setDuration] = useState(0);
   const [currentAccuracy, setCurrentAccuracy] = useState<number | null>(null);
   const [isAutoCenterEnabled, setIsAutoCenterEnabled] = useState(true);
+  const [isStopDialogOpen, setIsStopDialogOpen] = useState(false);
   const lastRecordedAtRef = useRef<number | null>(null);
   const watchId = useRef<number | null>(null);
   const startTime = useRef<number | null>(null);
   const intervalId = useRef<NodeJS.Timeout | null>(null);
-  const currentMarker = useRef<mapboxgl.Marker | null>(null);
+  const currentMarker = useRef<maplibregl.Marker | null>(null);
+  const currentMarkerImageRef = useRef<string | null>(null);
   const mapLoadedRef = useRef(false);
   const isTrackingRef = useRef(false);
   const pathRef = useRef<GPSPoint[]>([]);
@@ -43,12 +58,14 @@ function RunPageContent() {
   const lastPositionRef = useRef<GeolocationPosition | null>(null);
   const isAutoCenterRef = useRef(true);
   const courseWaypointsRef = useRef<{ lat: number; lng: number; order: number }[]>([]);
+  const hasInitialLocationRef = useRef(false);
   const searchParams = useSearchParams();
   const courseId = searchParams.get('courseId');
   const router = useRouter();
   const collectMutation = trpc.collection.collect.useMutation();
   const freeRunMutation = trpc.runSession.createFreeRun.useMutation();
   const { data: course } = trpc.course.byId.useQuery({ id: courseId ?? '' }, { enabled: Boolean(courseId) });
+  const { data: profileSummary } = trpc.profile.summary.useQuery();
 
   useEffect(() => {
     isTrackingRef.current = isTracking;
@@ -80,14 +97,30 @@ function RunPageContent() {
 
     updateCurrentMarker(latitude, longitude);
 
-    if (lastRecordedAtRef.current && timestamp - lastRecordedAtRef.current < 3000) {
+    if (lastRecordedAtRef.current && timestamp - lastRecordedAtRef.current < MIN_POINT_INTERVAL_MS) {
       return;
     }
-    lastRecordedAtRef.current = timestamp;
 
-    if (accuracy > 20) {
+    if (accuracy > MAX_ALLOWED_ACCURACY_METERS) {
       return;
     }
+
+    const previousPoint = pathRef.current[pathRef.current.length - 1];
+    if (previousPoint) {
+      const elapsedSeconds = Math.max(1, (timestamp - previousPoint.timestamp) / 1000);
+      const movementMeters = calculateDistance(previousPoint, newPoint);
+      const speed = movementMeters / elapsedSeconds;
+
+      if (movementMeters < MIN_MOVEMENT_METERS) {
+        return;
+      }
+
+      if (speed > MAX_RUNNING_SPEED_MPS) {
+        return;
+      }
+    }
+
+    lastRecordedAtRef.current = timestamp;
 
     setPath((prev) => {
       if (prev.length > 0) {
@@ -105,12 +138,23 @@ function RunPageContent() {
   };
 
   const updateCurrentMarker = (latitude: number, longitude: number) => {
+    const markerImage = profileSummary?.user.image ?? null;
+
+    if (!currentMarker.current || currentMarkerImageRef.current !== markerImage) {
+      currentMarker.current?.remove();
+      currentMarker.current = null;
+    }
+
     if (currentMarker.current) {
       currentMarker.current.setLngLat([longitude, latitude]);
     } else if (map.current) {
-      currentMarker.current = new mapboxgl.Marker({ color: '#0ea5e9' })
+      currentMarker.current = new maplibregl.Marker({
+        element: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
+        anchor: 'center',
+      })
         .setLngLat([longitude, latitude])
         .addTo(map.current);
+      currentMarkerImageRef.current = markerImage;
     }
 
     if (!isTrackingRef.current || isAutoCenterRef.current) {
@@ -121,7 +165,7 @@ function RunPageContent() {
   const fitMapToCourse = (points: { lat: number; lng: number }[]) => {
     if (!map.current || points.length < 2) return;
 
-    const bounds = new mapboxgl.LngLatBounds();
+    const bounds = new maplibregl.LngLatBounds();
     points.forEach((point) => bounds.extend([point.lng, point.lat]));
 
     map.current.fitBounds(bounds, {
@@ -156,7 +200,7 @@ function RunPageContent() {
   useEffect(() => {
     if (!mapContainer.current) return;
 
-    map.current = new mapboxgl.Map({
+    map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: NAVER_LIKE_MAP_STYLE,
       center: [126.978, 37.5665],
@@ -168,15 +212,9 @@ function RunPageContent() {
       if (!mapInstance) return;
       applyKoreanMapLabels(mapInstance);
       applyRoadVisualStyle(mapInstance);
-      const layers = mapInstance.getStyle().layers ?? [];
-      layers.forEach((layer) => {
-        if (layer.type === 'symbol' && mapInstance.getLayer(layer.id)) {
-          mapInstance.setLayoutProperty(layer.id, 'visibility', 'none');
-        }
-      });
     };
 
-    const handleMapClick = (event: mapboxgl.MapMouseEvent) => {
+    const handleMapClick = (event: maplibregl.MapMouseEvent) => {
       if (isTrackingRef.current) return;
       const { lat, lng } = event.lngLat;
       updateCurrentMarker(lat, lng);
@@ -200,10 +238,16 @@ function RunPageContent() {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
+            hasInitialLocationRef.current = true;
             updateCurrentMarker(
               position.coords.latitude,
               position.coords.longitude
             );
+            map.current?.easeTo({
+              center: [position.coords.longitude, position.coords.latitude],
+              zoom: 15,
+              duration: 450,
+            });
           },
           () => {},
           { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
@@ -280,7 +324,7 @@ function RunPageContent() {
       (position) => {
         lastPositionRef.current = position;
         const { latitude, longitude, accuracy } = position.coords;
-        handleNewPoint(latitude, longitude, accuracy, Date.now());
+        handleNewPoint(latitude, longitude, accuracy, position.timestamp);
       },
       (err) => {
         toast.error(`GPS 오류: ${err.message}`);
@@ -386,6 +430,15 @@ function RunPageContent() {
     }
   };
 
+  const requestStopTracking = () => {
+    if (isTracking && !isPaused) {
+      setIsStopDialogOpen(true);
+      return;
+    }
+
+    stopTracking();
+  };
+
   const pauseTracking = () => {
     if (!isTracking) return;
     if (watchId.current) {
@@ -412,7 +465,7 @@ function RunPageContent() {
       (position) => {
         lastPositionRef.current = position;
         const { latitude, longitude, accuracy } = position.coords;
-        handleNewPoint(latitude, longitude, accuracy, Date.now());
+        handleNewPoint(latitude, longitude, accuracy, position.timestamp);
       },
       (err) => {
         toast.error(`GPS 오류: ${err.message}`);
@@ -433,7 +486,7 @@ function RunPageContent() {
     const coordinates = points.map((p) => [p.lng, p.lat]);
 
     if (map.current.getSource('run-path')) {
-      (map.current.getSource('run-path') as mapboxgl.GeoJSONSource).setData({
+      (map.current.getSource('run-path') as maplibregl.GeoJSONSource).setData({
         type: 'Feature',
         properties: {},
         geometry: {
@@ -455,6 +508,21 @@ function RunPageContent() {
       });
 
       map.current.addLayer({
+        id: 'run-path-outline',
+        type: 'line',
+        source: 'run-path',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 8,
+          'line-opacity': 0.9,
+        },
+      });
+
+      map.current.addLayer({
         id: 'run-path',
         type: 'line',
         source: 'run-path',
@@ -464,7 +532,8 @@ function RunPageContent() {
         },
         paint: {
           'line-color': '#0ea5e9',
-          'line-width': 4,
+          'line-width': 6,
+          'line-opacity': 0.98,
         },
       });
     }
@@ -475,7 +544,7 @@ function RunPageContent() {
     const coordinates = points.map((p) => [p.lng, p.lat]);
 
     if (map.current.getSource('course-path')) {
-      (map.current.getSource('course-path') as mapboxgl.GeoJSONSource).setData({
+      (map.current.getSource('course-path') as maplibregl.GeoJSONSource).setData({
         type: 'Feature',
         properties: {},
         geometry: {
@@ -497,6 +566,21 @@ function RunPageContent() {
       });
 
       map.current.addLayer({
+        id: 'course-path-outline',
+        type: 'line',
+        source: 'course-path',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 8,
+          'line-opacity': 0.75,
+        },
+      });
+
+      map.current.addLayer({
         id: 'course-path',
         type: 'line',
         source: 'course-path',
@@ -506,7 +590,9 @@ function RunPageContent() {
         },
         paint: {
           'line-color': '#22c55e',
-          'line-width': 4,
+          'line-width': 5,
+          'line-opacity': 0.9,
+          'line-dasharray': [1.2, 1.2],
         },
       });
     }
@@ -515,7 +601,7 @@ function RunPageContent() {
   useEffect(() => {
     if (!mapLoadedRef.current || !courseWaypoints.length) return;
     updateCourseLine(courseWaypoints);
-    if (!isTrackingRef.current && !hasPath) {
+    if (!isTrackingRef.current && !hasPath && !hasInitialLocationRef.current) {
       fitMapToCourse(courseWaypoints);
     }
   }, [courseWaypoints, hasPath]);
@@ -597,28 +683,41 @@ function RunPageContent() {
         {isTracking && !isAutoCenterEnabled ? (
           <Button
             type="button"
-            size="sm"
-            variant="secondary"
-            className="absolute bottom-36 right-4 rounded-full border border-white/70 bg-white/90 shadow-lg"
+            aria-label="내 현재 위치로 이동"
+            className={`${LOCATION_FAB_BASE_CLASS} ${LOCATION_FAB_TRANSITION_CLASS}`}
+            style={{ bottom: getLocationFabBottom(144) }}
             onClick={handleRecenter}
           >
-            <LocateFixed className="mr-1 h-4 w-4" />
-            Centered
+            <LocateFixed className="h-5 w-5" />
           </Button>
         ) : null}
       </div>
 
       {/* Controls */}
-    <div className="rg-safe-bottom fixed bottom-0 left-0 right-0 border-t border-white/70 bg-white/85 p-6 backdrop-blur-xl shadow-[0_-14px_30px_-26px_rgba(15,23,42,0.7)]">
+      <div className="rg-safe-bottom fixed bottom-0 left-0 right-0 border-t border-white/70 bg-white/85 p-6 backdrop-blur-xl shadow-[0_-14px_30px_-26px_rgba(15,23,42,0.7)]">
         {!isTracking ? (
-          <Button
-            size="lg"
-            className="rg-touch w-full h-16 text-lg rounded-2xl bg-primary hover:bg-primary/90"
-            onClick={isPaused && hasPath ? resumeTracking : startTracking}
-          >
-            <Play className="w-6 h-6 mr-2" />
-            {isPaused && hasPath ? '러닝 재개' : '러닝 시작'}
-          </Button>
+          <div className="flex items-center gap-3">
+            {!isPaused && !hasPath ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="rg-touch-icon rg-press h-16 w-16 rounded-2xl border border-white/80 bg-white/90 text-slate-700 shadow-md"
+                aria-label="홈으로 돌아가기"
+                onClick={() => router.replace('/')}
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </Button>
+            ) : null}
+            <Button
+              size="lg"
+              className="rg-touch h-16 flex-1 text-lg rounded-2xl bg-primary hover:bg-primary/90"
+              onClick={isPaused && hasPath ? resumeTracking : startTracking}
+            >
+              <Play className="w-6 h-6 mr-2" />
+              {isPaused && hasPath ? '러닝 재개' : '러닝 시작'}
+            </Button>
+          </div>
         ) : (
           <div className="flex gap-4">
             <Button
@@ -634,7 +733,7 @@ function RunPageContent() {
               size="lg"
               variant="destructive"
               className="rg-touch flex-1 h-16 text-lg rounded-2xl"
-              onClick={stopTracking}
+              onClick={requestStopTracking}
             >
               <Square className="w-6 h-6 mr-2" />
               종료
@@ -642,6 +741,36 @@ function RunPageContent() {
           </div>
         )}
       </div>
+
+      <Dialog open={isStopDialogOpen} onOpenChange={setIsStopDialogOpen}>
+        <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">러닝을 종료할까요?</DialogTitle>
+            <DialogDescription className="text-slate-600">
+              현재 기록을 저장하고 결과 화면으로 이동합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setIsStopDialogOpen(false)}
+            >
+              계속 달리기
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-full"
+              onClick={() => {
+                setIsStopDialogOpen(false);
+                stopTracking();
+              }}
+            >
+              종료하고 저장
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

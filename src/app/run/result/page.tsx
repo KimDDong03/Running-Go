@@ -3,7 +3,6 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { trpc } from '@/components/providers/TRPCProvider';
@@ -11,8 +10,6 @@ import { trpc } from '@/components/providers/TRPCProvider';
 function RunResultPageContent() {
   const params = useSearchParams();
   const router = useRouter();
-  const { status: sessionStatus } = useSession();
-  const isAuthed = sessionStatus === 'authenticated';
   const isCollected = params.get('isCollected') === 'true';
   const matchRate = params.get('matchRate');
   const reason = params.get('reason');
@@ -21,18 +18,6 @@ function RunResultPageContent() {
   const { data: runSession, isError, error } = trpc.runSession.byId.useQuery(
     { id: runSessionId ?? '' },
     { enabled: Boolean(runSessionId) }
-  );
-  const { data: subscriptionData, isLoading: isSubscriptionLoading } = trpc.billing.subscriptionStatus.useQuery(
-    undefined,
-    {
-      enabled: isAuthed,
-      retry: false,
-    }
-  );
-
-  const hasProEntitlement = Boolean(
-    subscriptionData?.entitlements.some((entitlement) => entitlement.type === 'PRO')
-      || subscriptionData?.subscription
   );
 
   const formatPredictedDuration = (minutes: number) => {
@@ -68,29 +53,16 @@ function RunResultPageContent() {
           )}
           {runSession && (
             <div className="rg-soft-panel p-4 text-left space-y-2">
-              <div className="text-sm font-semibold text-slate-900">프로 고급 리포트</div>
-              {isSubscriptionLoading && isAuthed ? (
-                <div className="text-sm text-slate-500">구독 상태를 확인하는 중...</div>
-              ) : hasProEntitlement ? (
-                <>
-                  <div className="text-sm text-slate-600">
-                    예상 5K 기록: {formatPredictedDuration(runSession.pace * 5)}
-                  </div>
-                  <div className="text-sm text-slate-600">
-                    예상 10K 기록: {formatPredictedDuration(runSession.pace * 10)}
-                  </div>
-                  <div className="text-sm text-slate-600">
-                    추천 훈련: {trainingFocus}
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-2">
-                  <div className="text-sm text-slate-500">프로 구독 시 예상 기록과 맞춤 훈련 제안을 제공합니다.</div>
-                  <Link href="/profile">
-                    <Button size="sm" variant="outline" className="rounded-xl">프로 구독 보기</Button>
-                  </Link>
-                </div>
-              )}
+              <div className="text-sm font-semibold text-slate-900">고급 러닝 리포트</div>
+              <div className="text-sm text-slate-600">
+                예상 5K 기록: {formatPredictedDuration(runSession.pace * 5)}
+              </div>
+              <div className="text-sm text-slate-600">
+                예상 10K 기록: {formatPredictedDuration(runSession.pace * 10)}
+              </div>
+              <div className="text-sm text-slate-600">
+                추천 훈련: {trainingFocus}
+              </div>
             </div>
           )}
           {reason && <div className="text-sm text-slate-500">{reason}</div>}

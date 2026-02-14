@@ -1,10 +1,11 @@
 'use client';
 
-import { use, useMemo } from 'react';
+import { use, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
@@ -14,8 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/ui/error-state';
 import { ChevronLeft, Heart, MapPin, Clock, Trophy, User, Play, Trash2 } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
-import { clientEnv } from '@/lib/env';
-import { NAVER_LIKE_MAP_STYLE_ID } from '@/lib/map-style';
+import { NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
 
 interface Waypoint {
   lat: number;
@@ -113,6 +113,8 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   });
 
   const courseDetail = course as unknown as CourseDetail | null;
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   const waypointList = useMemo(() => {
     if (!courseDetail) return [] as Waypoint[];
     const raw = Array.isArray(courseDetail.waypoints)
@@ -121,63 +123,111 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     return [...raw].sort((a, b) => a.order - b.order);
   }, [courseDetail]);
 
-  const mapboxToken = clientEnv.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
-  const maxPathPoints = 80;
-  const getMapImageUrl = (lat: number, lng: number) => {
-    const width = 900;
-    const height = 520;
-    const zoom = 13;
-    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${lng},${lat},${zoom},0/${width}x${height}?access_token=${mapboxToken}`;
-  };
+  useEffect(() => {
+    if (!courseDetail || !mapContainerRef.current || mapRef.current) {
+      return;
+    }
 
-  const encodePolyline = (points: { lat: number; lng: number }[]) => {
-    let result = '';
-    let prevLat = 0;
-    let prevLng = 0;
-
-    points.forEach((point) => {
-      const lat = Math.round(point.lat * 1e5);
-      const lng = Math.round(point.lng * 1e5);
-      const dLat = lat - prevLat;
-      const dLng = lng - prevLng;
-      prevLat = lat;
-      prevLng = lng;
-
-      [dLat, dLng].forEach((value) => {
-        let shifted = value << 1;
-        if (value < 0) shifted = ~shifted;
-        let chunk = shifted;
-        while (chunk >= 0x20) {
-          result += String.fromCharCode((0x20 | (chunk & 0x1f)) + 63);
-          chunk >>= 5;
-        }
-        result += String.fromCharCode(chunk + 63);
-      });
+    mapRef.current = new maplibregl.Map({
+      container: mapContainerRef.current,
+      style: NAVER_LIKE_MAP_STYLE,
+      center: [courseDetail.centerLng, courseDetail.centerLat],
+      zoom: 13,
     });
 
-    return result;
-  };
+    mapRef.current.dragPan.disable();
+    mapRef.current.scrollZoom.disable();
+    mapRef.current.boxZoom.disable();
+    mapRef.current.doubleClickZoom.disable();
+    mapRef.current.touchZoomRotate.disable();
+    mapRef.current.keyboard.disable();
 
-  const samplePath = (points: { lat: number; lng: number }[]) => {
-    if (points.length <= maxPathPoints) return points;
-    const step = Math.ceil(points.length / maxPathPoints);
-    const sampled: { lat: number; lng: number }[] = [];
-    for (let i = 0; i < points.length; i += step) {
-      sampled.push(points[i]);
-    }
-    if (sampled[sampled.length - 1] !== points[points.length - 1]) {
-      sampled.push(points[points.length - 1]);
-    }
-    return sampled;
-  };
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, [courseDetail]);
 
-  const getMapPathImageUrl = (points: { lat: number; lng: number }[]) => {
-    const width = 900;
-    const height = 520;
-    const path = encodePolyline(samplePath(points));
-    const overlay = `path-5+0ea5e9(${encodeURIComponent(path)})`;
-    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${overlay}/auto/${width}x${height}?padding=80&access_token=${mapboxToken}`;
-  };
+  useEffect(() => {
+    if (!courseDetail || !mapRef.current) {
+      return;
+    }
+
+    const map = mapRef.current;
+
+    const renderPath = () => {
+      const coordinates = waypointList.map((point) => [point.lng, point.lat]) as [number, number][];
+      const sourceId = 'course-preview-path';
+
+      if (map.getLayer('course-preview-main')) {
+        map.removeLayer('course-preview-main');
+      }
+      if (map.getLayer('course-preview-outline')) {
+        map.removeLayer('course-preview-outline');
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+
+      if (coordinates.length >= 2) {
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates,
+            },
+          },
+        });
+
+        map.addLayer({
+          id: 'course-preview-outline',
+          type: 'line',
+          source: sourceId,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': 8,
+            'line-opacity': 0.9,
+          },
+        });
+
+        map.addLayer({
+          id: 'course-preview-main',
+          type: 'line',
+          source: sourceId,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': '#0ea5e9',
+            'line-width': 5,
+            'line-opacity': 0.96,
+          },
+        });
+
+        const bounds = new maplibregl.LngLatBounds();
+        coordinates.forEach((coord) => bounds.extend(coord));
+        map.fitBounds(bounds, { padding: 36, maxZoom: 15, duration: 0 });
+      } else {
+        map.jumpTo({ center: [courseDetail.centerLng, courseDetail.centerLat], zoom: 13 });
+      }
+    };
+
+    if (map.loaded()) {
+      renderPath();
+    } else {
+      map.once('load', renderPath);
+    }
+  }, [courseDetail, waypointList]);
 
   if (isLoading) {
     return (
@@ -232,35 +282,13 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
           <Button
             variant="secondary"
             size="icon"
-            className="rg-touch-icon absolute top-4 left-4 rounded-full bg-white/80 backdrop-blur border border-white/70"
+            className="rg-touch-icon absolute top-4 left-4 z-20 rounded-full bg-white/80 backdrop-blur border border-white/70"
           >
             <ChevronLeft className="w-6 h-6" />
           </Button>
         </Link>
-        <div className="absolute inset-0 flex items-center justify-center">
-          {mapboxToken && waypointList.length ? (
-            <Image
-              src={getMapPathImageUrl(waypointList)}
-              alt={`${courseDetail.title} 지도`}
-              fill
-              sizes="100vw"
-              unoptimized
-              className="object-cover"
-            />
-          ) : mapboxToken ? (
-            <Image
-              src={getMapImageUrl(courseDetail.centerLat, courseDetail.centerLng)}
-              alt={`${courseDetail.title} 지도`}
-              fill
-              sizes="100vw"
-              unoptimized
-              className="object-cover"
-            />
-          ) : courseDetail.thumbnailUrl ? (
-            <div className="w-full h-full bg-slate-200" />
-          ) : (
-            <span className="text-8xl">🏃‍♂️</span>
-          )}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div ref={mapContainerRef} className="h-full w-full" />
         </div>
       </div>
 

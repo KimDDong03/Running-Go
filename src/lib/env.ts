@@ -6,14 +6,9 @@ const serverSchema = z.object({
   NEXTAUTH_SECRET: z.string().min(1),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
-  TOSS_SECRET_KEY: z.string().min(1).optional(),
-  BILLING_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
-const clientSchema = z.object({
-  NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN: z.string().min(1),
-  NEXT_PUBLIC_TOSS_CLIENT_KEY: z.string().min(1).optional(),
-});
+const clientSchema = z.object({});
 
 let cachedServerEnv: z.infer<typeof serverSchema> | undefined;
 
@@ -24,7 +19,4 @@ export const getServerEnv = () => {
   return cachedServerEnv;
 };
 
-export const clientEnv = clientSchema.parse({
-  NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN: process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN,
-  NEXT_PUBLIC_TOSS_CLIENT_KEY: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
-});
+export const clientEnv = clientSchema.parse({});

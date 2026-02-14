@@ -2,15 +2,20 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, MapPin } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
+import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
+import { NAVER_LIKE_MAP_STYLE, applyKoreanMapLabels, applyRoadVisualStyle } from '@/lib/map-style';
 
 const difficultyLabels: Record<Difficulty, string> = {
   EASY: '쉬움',
@@ -26,27 +31,238 @@ const difficultyColors: Record<Difficulty, string> = {
 
 export default function CollectionPage() {
   const router = useRouter();
+  const { data: session, status: sessionStatus } = useSession();
   const { data, isLoading, isError, error, refetch } = trpc.collection.listByUser.useQuery();
+  const { data: createdData, isLoading: isCreatedLoading } = trpc.course.listByUser.useQuery(
+    { userId: session?.user?.id ?? '', limit: 50 },
+    { enabled: sessionStatus === 'authenticated' && Boolean(session?.user?.id) }
+  );
+
   const [sort, setSort] = useState<'recent' | 'count'>('recent');
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
+  const [viewType, setViewType] = useState<'collected' | 'created'>('collected');
+  const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
+  const [isRoutePreviewOpen, setIsRoutePreviewOpen] = useState(false);
+  const previewMapContainerRef = useRef<HTMLDivElement>(null);
+  const previewMapRef = useRef<maplibregl.Map | null>(null);
+
+  type RouteCourse = {
+    id: string;
+    title: string;
+    totalDistance: number;
+    difficulty: Difficulty;
+    tags: string[];
+    waypoints: { lat: number; lng: number; order: number }[];
+    centerLat: number;
+    centerLng: number;
+    thumbnailUrl?: string | null;
+    count?: number;
+    createdAt?: string | Date;
+    likeCount?: number;
+    status?: string;
+  };
+
+  const collectedCourses = useMemo<RouteCourse[]>(() => {
+    if (!data?.collections) return [];
+    return data.collections.map((collection) => ({
+      id: collection.course.id,
+      title: collection.course.title,
+      totalDistance: collection.course.totalDistance,
+      difficulty: collection.course.difficulty,
+      tags: collection.course.tags,
+      waypoints: Array.isArray(collection.course.waypoints)
+        ? (collection.course.waypoints as { lat: number; lng: number; order: number }[])
+        : [],
+      centerLat: collection.course.centerLat,
+      centerLng: collection.course.centerLng,
+      thumbnailUrl: collection.course.thumbnailUrl,
+      count: collection.count,
+      createdAt: collection.lastAt,
+    }));
+  }, [data?.collections]);
+
+  const createdCourses = useMemo<RouteCourse[]>(() => {
+    if (!createdData?.courses) return [];
+    return createdData.courses.map((course) => ({
+      id: course.id,
+      title: course.title,
+      totalDistance: course.totalDistance,
+      difficulty: course.difficulty,
+      tags: Array.isArray(course.tags) ? course.tags : [],
+      waypoints: Array.isArray(course.waypoints)
+        ? (course.waypoints as { lat: number; lng: number; order: number }[])
+        : [],
+      centerLat: course.centerLat,
+      centerLng: course.centerLng,
+      thumbnailUrl: course.thumbnailUrl,
+      createdAt: course.createdAt,
+      likeCount: (course as { likeCount?: number }).likeCount,
+      status: (course as { status?: string }).status,
+    }));
+  }, [createdData?.courses]);
+
+  const baseCourses = viewType === 'created' ? createdCourses : collectedCourses;
 
   const availableTags = (() => {
     const tags = new Set<string>();
-    data?.collections?.forEach((collection) => {
-      collection.course.tags.forEach((tag) => tags.add(tag));
+    baseCourses.forEach((course) => {
+      course.tags.forEach((tag) => tags.add(tag));
     });
     return ['ALL', ...Array.from(tags)];
   })();
 
-  const sortedCollections = (() => {
-    if (!data?.collections) return [];
+  const sortedCourses = (() => {
+    if (!baseCourses.length) return [];
     const filtered = selectedTag === 'ALL'
-      ? data.collections
-      : data.collections.filter((collection) => collection.course.tags.includes(selectedTag));
+      ? baseCourses
+      : baseCourses.filter((course) => course.tags.includes(selectedTag));
+
     const next = [...filtered];
-    if (sort === 'count') return next.sort((a, b) => b.count - a.count);
-    return next.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+    if (sort === 'count') {
+      if (viewType === 'created') {
+        return next.sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0));
+      }
+
+      return next.sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+    }
+
+    return next.sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
   })();
+
+  const selectedCourses = sortedCourses.filter((course) => selectedCourseIds.includes(course.id));
+  const hasAnyCourses = collectedCourses.length > 0 || createdCourses.length > 0;
+
+  useEffect(() => {
+    setSelectedCourseIds([]);
+    setIsRoutePreviewOpen(false);
+  }, [viewType]);
+
+  useEffect(() => {
+    if (!isRoutePreviewOpen || !previewMapContainerRef.current) {
+      return;
+    }
+
+    if (!previewMapRef.current) {
+      previewMapRef.current = new maplibregl.Map({
+        container: previewMapContainerRef.current,
+        style: NAVER_LIKE_MAP_STYLE,
+        center: [126.978, 37.5665],
+        zoom: 12,
+      });
+
+      previewMapRef.current.once('load', () => {
+        applyKoreanMapLabels(previewMapRef.current!);
+        applyRoadVisualStyle(previewMapRef.current!);
+      });
+    }
+
+    const map = previewMapRef.current;
+    const colors = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#ef4444', '#14b8a6'];
+
+    const cleanupLayers = () => {
+      if (!map) return;
+      const style = map.getStyle();
+      const layers = style.layers ?? [];
+
+      layers.forEach((layer) => {
+        if (layer.id.startsWith('preview-route-')) {
+          map.removeLayer(layer.id);
+        }
+      });
+
+      Object.keys(style.sources).forEach((sourceId) => {
+        if (sourceId.startsWith('preview-route-')) {
+          map.removeSource(sourceId);
+        }
+      });
+    };
+
+    const renderRoutes = () => {
+      cleanupLayers();
+
+      const bounds = new maplibregl.LngLatBounds();
+      let hasBounds = false;
+
+      selectedCourses.forEach((course, index) => {
+        const sortedWaypoints = [...course.waypoints].sort((a, b) => a.order - b.order);
+        const coordinates = sortedWaypoints.map((point) => [point.lng, point.lat]) as [number, number][];
+        if (coordinates.length < 2) {
+          return;
+        }
+
+        coordinates.forEach((coord) => {
+          bounds.extend(coord);
+          hasBounds = true;
+        });
+
+        const sourceId = `preview-route-${course.id}`;
+        const color = colors[index % colors.length];
+
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates,
+            },
+          },
+        });
+
+        map.addLayer({
+          id: `${sourceId}-outline`,
+          type: 'line',
+          source: sourceId,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': 8,
+            'line-opacity': 0.85,
+          },
+        });
+
+        map.addLayer({
+          id: `${sourceId}-main`,
+          type: 'line',
+          source: sourceId,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': color,
+            'line-width': 5,
+            'line-opacity': 0.95,
+          },
+        });
+      });
+
+      if (hasBounds) {
+        map.fitBounds(bounds, { padding: 40, maxZoom: 15, duration: 300 });
+      }
+    };
+
+    if (map.loaded()) {
+      renderRoutes();
+    } else {
+      map.once('load', renderRoutes);
+    }
+
+    return () => {
+      if (previewMapRef.current && !isRoutePreviewOpen) {
+        previewMapRef.current.remove();
+        previewMapRef.current = null;
+      }
+    };
+  }, [isRoutePreviewOpen, selectedCourses]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -76,7 +292,7 @@ export default function CollectionPage() {
       </header>
 
       <main className="rg-page-main p-4 space-y-4">
-        {isLoading ? (
+        {isLoading || (sessionStatus === 'authenticated' && isCreatedLoading) ? (
           <div className="text-center py-20 text-slate-500">불러오는 중...</div>
         ) : isError ? (
           error?.data?.code === 'UNAUTHORIZED' ? (
@@ -94,7 +310,7 @@ export default function CollectionPage() {
               onAction={() => refetch()}
             />
           )
-        ) : !data?.collections.length ? (
+        ) : !hasAnyCourses ? (
           <div className="text-center py-20">
             <p className="text-slate-500">아직 수집한 코스가 없습니다</p>
             <Link href="/courses">
@@ -103,6 +319,24 @@ export default function CollectionPage() {
           </div>
         ) : (
             <div className="space-y-4">
+            <div className="rg-chip-bar rg-scroll-row">
+              <Button
+                size="sm"
+                variant={viewType === 'collected' ? 'default' : 'outline'}
+                className="rg-touch rg-press rounded-full"
+                onClick={() => setViewType('collected')}
+              >
+                수집한 코스
+              </Button>
+              <Button
+                size="sm"
+                variant={viewType === 'created' ? 'default' : 'outline'}
+                className="rg-touch rg-press rounded-full"
+                onClick={() => setViewType('created')}
+              >
+                제작한 코스
+              </Button>
+            </div>
             <div className="rg-chip-bar rg-scroll-row">
               <Button
                 size="sm"
@@ -118,7 +352,7 @@ export default function CollectionPage() {
                 className="rg-touch rg-press rounded-full"
                 onClick={() => setSort('count')}
               >
-                수집 많은 순
+                {viewType === 'created' ? '인기순' : '수집 많은 순'}
               </Button>
               <select
                 value={selectedTag}
@@ -132,39 +366,136 @@ export default function CollectionPage() {
                 ))}
               </select>
             </div>
+
+            {selectedCourseIds.length > 0 && (
+              <div className="flex items-center justify-between rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2">
+                <p className="text-xs text-sky-700">{selectedCourseIds.length}개 코스 선택됨</p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={() => setSelectedCourseIds([])}
+                  >
+                    선택 해제
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => setIsRoutePreviewOpen(true)}
+                  >
+                    동선 함께 보기
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {isRoutePreviewOpen && selectedCourses.length > 0 && (
+              <div className="rounded-3xl border border-white/70 bg-white/90 p-3 shadow-[0_20px_36px_-28px_rgba(15,23,42,0.6)]">
+                <div ref={previewMapContainerRef} className="h-56 w-full rounded-2xl" />
+                <div className="mt-3 space-y-1">
+                  {selectedCourses.map((course, index) => (
+                    <div key={course.id} className="flex items-center gap-2 text-xs text-slate-700">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#ef4444', '#14b8a6'][index % 6] }}
+                      />
+                      <span className="truncate">{course.title}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button size="sm" variant="outline" className="rounded-full" onClick={() => setIsRoutePreviewOpen(false)}>
+                    닫기
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="rg-stagger grid grid-cols-2 gap-4">
-              {sortedCollections.map((collection) => (
-                <Link key={collection.id} href={`/courses/${collection.course.id}`}>
+              {sortedCourses.length === 0 ? (
+                <div className="col-span-2 rounded-2xl border border-white/70 bg-white/80 py-10 text-center text-sm text-slate-500">
+                  {viewType === 'created' ? '아직 제작한 코스가 없습니다' : '태그 조건에 맞는 수집 코스가 없습니다'}
+                </div>
+              ) : sortedCourses.map((course) => {
+                const isSelected = selectedCourseIds.includes(course.id);
+
+                return (
+                <div
+                  key={course.id}
+                  role="button"
+                  tabIndex={0}
+                  className="w-full text-left"
+                  onClick={() => router.push(`/courses/${course.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      router.push(`/courses/${course.id}`);
+                    }
+                  }}
+                >
                   <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
                     <div className="relative h-28 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
-                      {collection.course.thumbnailUrl ? (
-                        <Image
-                          src={collection.course.thumbnailUrl}
-                          alt={collection.course.title}
-                          fill
-                          sizes="50vw"
-                          className="object-cover"
-                        />
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-3xl">🏃‍♂️</div>
-                      )}
+                      <button
+                        type="button"
+                        className={`absolute right-2 top-2 z-20 h-6 min-w-6 rounded-full border px-1 text-[10px] font-semibold ${isSelected ? 'border-sky-300 bg-sky-500 text-white' : 'border-white/80 bg-white/90 text-slate-700'}`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSelectedCourseIds((prev) => (
+                            prev.includes(course.id)
+                              ? prev.filter((id) => id !== course.id)
+                              : [...prev, course.id]
+                          ));
+                        }}
+                      >
+                        {isSelected ? '선택' : '보기'}
+                      </button>
+                      <Image
+                        src={(() => {
+                          const raw = Array.isArray(course.waypoints)
+                            ? (course.waypoints as { lat: number; lng: number }[])
+                            : [];
+                          return getCoursePreviewImageUrl(
+                            raw,
+                            {
+                              lat: course.centerLat,
+                              lng: course.centerLng,
+                            },
+                            { width: 320, height: 180 }
+                          );
+                        })()}
+                        alt={course.title}
+                        fill
+                        sizes="50vw"
+                        className="object-cover"
+                        unoptimized
+                      />
                     </div>
                     <CardContent className="p-3 space-y-2">
                       <div className="font-semibold text-sm line-clamp-1">
-                        {collection.course.title}
+                        {course.title}
                       </div>
                       <div className="flex items-center justify-between text-xs text-slate-600">
-                        <span>{collection.count}회 수집</span>
-                        <span>{collection.course.totalDistance.toFixed(1)}km</span>
+                        {viewType === 'created' ? (
+                          <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />내 제작</span>
+                        ) : (
+                          <span>{course.count ?? 0}회 수집</span>
+                        )}
+                        <span>{course.totalDistance.toFixed(1)}km</span>
                       </div>
-                      <Badge className={`${difficultyColors[collection.course.difficulty]} rounded-full text-xs px-2`}
+                      <div className="flex items-center gap-2">
+                        <Badge className={`${difficultyColors[course.difficulty]} rounded-full text-xs px-2`}
                       >
-                        {difficultyLabels[collection.course.difficulty]}
-                      </Badge>
+                          {difficultyLabels[course.difficulty]}
+                        </Badge>
+                        {viewType === 'created' && course.status === 'HIDDEN' ? (
+                          <Badge variant="outline" className="rounded-full text-[10px]">미공개</Badge>
+                        ) : null}
+                      </div>
                     </CardContent>
                   </Card>
-                </Link>
-              ))}
+                </div>
+              );})}
             </div>
           </div>
         )}

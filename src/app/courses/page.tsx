@@ -3,11 +3,13 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { trpc } from '@/components/providers/TRPCProvider';
-import { clientEnv } from '@/lib/env';
-import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE, NAVER_LIKE_MAP_STYLE_ID } from '@/lib/map-style';
+import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
+import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
+import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
+import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -94,9 +96,10 @@ export default function CoursesPage() {
   const [panelHeight, setPanelHeight] = useState<number>(INITIAL_PANEL_HEIGHT);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
-  const courseMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const userMarkerImageRef = useRef<string | null>(null);
+  const courseMarkersRef = useRef<maplibregl.Marker[]>([]);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   const courseListInput = useMemo(() => {
@@ -118,7 +121,6 @@ export default function CoursesPage() {
     courseListInput,
     { enabled: listSort !== 'NEAREST' || Boolean(userLocation) }
   );
-  const mapboxToken = clientEnv.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
   const maxPathPoints = 60;
 
   const { data: nearbyCourses, isLoading: isNearbyLoading, isError: isNearbyError, refetch: refetchNearby } = trpc.course.nearby.useQuery(
@@ -132,8 +134,10 @@ export default function CoursesPage() {
     { id: selectedCourseId ?? '' },
     { enabled: Boolean(selectedCourseId) }
   );
+  const { data: profileSummary } = trpc.profile.summary.useQuery();
 
   const selectedWaypointList = useMemo(() => {
+    if (!selectedCourseId) return [] as { lat: number; lng: number }[];
     if (!selectedCourse || !Array.isArray(selectedCourse.waypoints)) return [] as { lat: number; lng: number }[];
     const raw = selectedCourse.waypoints
       .map((point) => {
@@ -154,7 +158,7 @@ export default function CoursesPage() {
     return [...raw]
       .sort((a, b) => a.order - b.order)
       .map((point) => ({ lat: point.lat, lng: point.lng }));
-  }, [selectedCourse]);
+  }, [selectedCourse, selectedCourseId]);
 
   const snapPanelHeight = (height: number) => {
     const { min, mid, max } = getPanelSnapHeights();
@@ -251,9 +255,7 @@ export default function CoursesPage() {
   useEffect(() => {
     if (viewMode !== 'map' || !mapContainerRef.current || mapRef.current) return;
 
-    mapboxgl.accessToken = mapboxToken;
-
-    const mapInstance = new mapboxgl.Map({
+    const mapInstance = new maplibregl.Map({
       container: mapContainerRef.current,
       style: NAVER_LIKE_MAP_STYLE,
       center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
@@ -288,7 +290,7 @@ export default function CoursesPage() {
       mapInstance.remove();
       mapRef.current = null;
     };
-  }, [mapboxToken, viewMode]);
+  }, [viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapContainerRef.current) return;
@@ -308,18 +310,21 @@ export default function CoursesPage() {
     if (viewMode !== 'map' || !mapRef.current || !userLocation) return;
 
     const center: [number, number] = [userLocation.lng, userLocation.lat];
+    const markerImage = profileSummary?.user.image ?? null;
     mapRef.current.setCenter(center);
     mapRef.current.setZoom(14);
 
-    if (!userMarkerRef.current) {
-      userMarkerRef.current = new mapboxgl.Marker({ color: '#2563eb' })
+    if (!userMarkerRef.current || userMarkerImageRef.current !== markerImage) {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = new maplibregl.Marker({ element: createCurrentLocationMarkerElement(markerImage, { size: 36 }), anchor: 'center' })
         .setLngLat(center)
         .addTo(mapRef.current);
+      userMarkerImageRef.current = markerImage;
       return;
     }
 
     userMarkerRef.current.setLngLat(center);
-  }, [userLocation, viewMode]);
+  }, [profileSummary?.user.image, userLocation, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current) return;
@@ -338,10 +343,10 @@ export default function CoursesPage() {
       markerButton.textContent = '🏃';
       markerButton.title = course.title;
       markerButton.onclick = () => {
-        setSelectedCourseId(course.id);
+        setSelectedCourseId((current) => (current === course.id ? null : course.id));
       };
 
-      const marker = new mapboxgl.Marker({ element: markerButton, anchor: 'bottom' })
+      const marker = new maplibregl.Marker({ element: markerButton, anchor: 'bottom' })
         .setLngLat([course.centerLng, course.centerLat])
         .addTo(mapRef.current!);
 
@@ -354,18 +359,22 @@ export default function CoursesPage() {
 
     const mapInstance = mapRef.current;
     const sourceId = 'selected-course-path';
-    const layerId = 'selected-course-path';
+    const outlineLayerId = 'selected-course-path-outline';
+    const mainLayerId = 'selected-course-path-main';
 
     const clearSelectedPath = () => {
-      if (mapInstance.getLayer(layerId)) {
-        mapInstance.removeLayer(layerId);
+      if (mapInstance.getLayer(mainLayerId)) {
+        mapInstance.removeLayer(mainLayerId);
+      }
+      if (mapInstance.getLayer(outlineLayerId)) {
+        mapInstance.removeLayer(outlineLayerId);
       }
       if (mapInstance.getSource(sourceId)) {
         mapInstance.removeSource(sourceId);
       }
     };
 
-    if (!selectedCourse || selectedWaypointList.length < 2 || !mapInstance.isStyleLoaded()) {
+    if (!selectedCourseId || !selectedCourse || selectedWaypointList.length < 2 || !mapInstance.isStyleLoaded()) {
       clearSelectedPath();
       return;
     }
@@ -382,7 +391,7 @@ export default function CoursesPage() {
     };
 
     if (mapInstance.getSource(sourceId)) {
-      (mapInstance.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(pathData);
+      (mapInstance.getSource(sourceId) as maplibregl.GeoJSONSource).setData(pathData);
     } else {
       mapInstance.addSource(sourceId, {
         type: 'geojson',
@@ -390,7 +399,22 @@ export default function CoursesPage() {
       });
 
       mapInstance.addLayer({
-        id: layerId,
+        id: outlineLayerId,
+        type: 'line',
+        source: sourceId,
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 8,
+          'line-opacity': 0.78,
+        },
+      });
+
+      mapInstance.addLayer({
+        id: mainLayerId,
         type: 'line',
         source: sourceId,
         layout: {
@@ -399,50 +423,16 @@ export default function CoursesPage() {
         },
         paint: {
           'line-color': '#22c55e',
-          'line-width': 5,
+          'line-width': 6,
+          'line-opacity': 0.98,
         },
       });
     }
 
-    const bounds = new mapboxgl.LngLatBounds();
+    const bounds = new maplibregl.LngLatBounds();
     coordinates.forEach((coordinate) => bounds.extend(coordinate));
     mapInstance.fitBounds(bounds, { padding: 70, duration: 500, maxZoom: 15 });
-  }, [selectedCourse, selectedWaypointList, viewMode]);
-
-  const getMapImageUrl = (lat: number, lng: number) => {
-    const width = 640;
-    const height = 360;
-    const zoom = 13;
-    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${lng},${lat},${zoom},0/${width}x${height}?access_token=${mapboxToken}`;
-  };
-
-  const encodePolyline = (points: { lat: number; lng: number }[]) => {
-    let result = '';
-    let prevLat = 0;
-    let prevLng = 0;
-
-    points.forEach((point) => {
-      const lat = Math.round(point.lat * 1e5);
-      const lng = Math.round(point.lng * 1e5);
-      const dLat = lat - prevLat;
-      const dLng = lng - prevLng;
-      prevLat = lat;
-      prevLng = lng;
-
-      [dLat, dLng].forEach((value) => {
-        let shifted = value << 1;
-        if (value < 0) shifted = ~shifted;
-        let chunk = shifted;
-        while (chunk >= 0x20) {
-          result += String.fromCharCode((0x20 | (chunk & 0x1f)) + 63);
-          chunk >>= 5;
-        }
-        result += String.fromCharCode(chunk + 63);
-      });
-    });
-
-    return result;
-  };
+  }, [selectedCourse, selectedCourseId, selectedWaypointList, viewMode]);
 
   const samplePath = (points: { lat: number; lng: number }[]) => {
     if (points.length <= maxPathPoints) return points;
@@ -457,17 +447,15 @@ export default function CoursesPage() {
     return sampled;
   };
 
-  const getMapPathImageUrl = (points: { lat: number; lng: number }[]) => {
-    const width = 640;
-    const height = 360;
-    const path = encodePolyline(samplePath(points));
-    const overlay = `path-4+0ea5e9(${encodeURIComponent(path)})`;
-    return `https://api.mapbox.com/styles/v1/${NAVER_LIKE_MAP_STYLE_ID}/static/${overlay}/auto/${width}x${height}?padding=60&access_token=${mapboxToken}`;
+  const getPreviewImageUrl = (points: { lat: number; lng: number }[], center: { lat: number; lng: number }) => {
+    return getCoursePreviewImageUrl(samplePath(points), center, { width: 640, height: 360 });
   };
 
-  const canUseMap = Boolean(mapboxToken);
+  const getCompactPreviewImageUrl = (points: { lat: number; lng: number }[], center: { lat: number; lng: number }) => {
+    return getCoursePreviewImageUrl(samplePath(points), center, { width: 240, height: 160 });
+  };
   const panelTransitionClass = isPanelDragging ? '' : 'transition-[height] duration-200 ease-out';
-  const locationButtonTransitionClass = isPanelDragging ? '' : 'transition-[bottom] duration-200 ease-out';
+  const locationButtonTransitionClass = isPanelDragging ? '' : LOCATION_FAB_TRANSITION_CLASS;
   const locationButtonBottom = panelHeight + (selectedCourse ? 72 : 12);
 
   const getDistanceLabel = (courseLat: number, courseLng: number) => {
@@ -544,8 +532,8 @@ export default function CoursesPage() {
             <button
               type="button"
               aria-label="내 현재 위치로 이동"
-              className={`rg-touch-icon rg-press absolute right-3 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-md ${locationButtonTransitionClass}`}
-              style={{ bottom: `calc(${locationButtonBottom}px + env(safe-area-inset-bottom))` }}
+              className={`${LOCATION_FAB_BASE_CLASS} ${locationButtonTransitionClass}`}
+              style={{ bottom: getLocationFabBottom(locationButtonBottom) }}
               onClick={moveToCurrentLocation}
             >
               <LocateFixed className="h-5 w-5" />
@@ -648,32 +636,28 @@ export default function CoursesPage() {
                         key={course.id}
                         type="button"
                         className="w-full text-left"
-                        onClick={() => setSelectedCourseId(course.id)}
+                        onClick={() => {
+                          setSelectedCourseId((current) => (current === course.id ? null : course.id));
+                        }}
                       >
                         <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${selectedCourseId === course.id ? 'rg-selected border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
                           <CardContent className="p-3">
                             <div className="flex gap-3">
-                              <div className="relative h-20 w-28 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
-                                {canUseMap ? (
-                                  <Image
-                                    src={(() => {
-                                      const raw = Array.isArray(course.waypoints)
-                                        ? (course.waypoints as { lat: number; lng: number }[])
-                                        : [];
-                                      return raw.length >= 2
-                                        ? getMapPathImageUrl(raw)
-                                        : getMapImageUrl(course.centerLat, course.centerLng);
-                                    })()}
-                                    alt={`${course.title} 지도`}
-                                    fill
-                                    sizes="120px"
-                                    quality={70}
-                                    unoptimized
-                                    className="object-cover"
-                                  />
-                                ) : (
-                                  <div className="flex h-full items-center justify-center text-3xl">🏃‍♂️</div>
-                                )}
+                              <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+                                <Image
+                                  src={(() => {
+                                    const raw = Array.isArray(course.waypoints)
+                                      ? (course.waypoints as { lat: number; lng: number }[])
+                                      : [];
+                                    return getCompactPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
+                                  })()}
+                                  alt={`${course.title} 지도`}
+                                  fill
+                                  sizes="120px"
+                                  quality={70}
+                                  unoptimized
+                                  className="object-cover"
+                                />
                               </div>
                               <div className="min-w-0 flex-1">
                                 <h3 className="truncate text-sm font-semibold text-slate-900">{course.title}</h3>
@@ -751,26 +735,20 @@ export default function CoursesPage() {
               <Link key={course.id} href={`/courses/${course.id}`}>
                 <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] overflow-hidden cursor-pointer transition-transform hover:-translate-y-0.5">
                   <div className="relative h-40 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60 flex items-center justify-center">
-                    {canUseMap ? (
-                      <Image
-                        src={(() => {
-                          const raw = Array.isArray(course.waypoints)
-                            ? (course.waypoints as { lat: number; lng: number }[])
-                            : [];
-                          return raw.length >= 2
-                            ? getMapPathImageUrl(raw)
-                            : getMapImageUrl(course.centerLat, course.centerLng);
-                        })()}
-                        alt={`${course.title} 지도`}
-                        fill
-                        sizes="100vw"
-                        quality={70}
-                        unoptimized
-                        className="object-cover"
-                      />
-                    ) : (
-                      <span className="text-6xl">🏃‍♂️</span>
-                    )}
+                    <Image
+                      src={(() => {
+                        const raw = Array.isArray(course.waypoints)
+                          ? (course.waypoints as { lat: number; lng: number }[])
+                          : [];
+                        return getPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
+                      })()}
+                      alt={`${course.title} 지도`}
+                      fill
+                      sizes="100vw"
+                      quality={70}
+                      unoptimized
+                      className="object-cover"
+                    />
                   </div>
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">

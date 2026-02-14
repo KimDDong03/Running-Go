@@ -1,6 +1,8 @@
-import { createTRPCRouter, publicProcedure } from '../trpc';
+import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
+import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
-import { getTier } from '@/lib/tier';
+import { getCollectorTier, getCreatorTier } from '@/lib/tier';
 
 const getOrCreateGuestUserId = async (userId: string | null) => {
   if (userId) return userId;
@@ -19,6 +21,34 @@ const getOrCreateGuestUserId = async (userId: string | null) => {
 };
 
 export const profileRouter = createTRPCRouter({
+  updateAvatar: protectedProcedure
+    .input(z.object({ image: z.string().nullable() }))
+    .mutation(async ({ input, ctx }) => {
+      const image = input.image?.trim() ?? null;
+
+      if (image) {
+        const isDataImage = image.startsWith('data:image/');
+        const isRemoteImage = image.startsWith('https://') || image.startsWith('http://');
+
+        if (!isDataImage && !isRemoteImage) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '지원하지 않는 이미지 형식입니다' });
+        }
+
+        if (isDataImage && image.length > 1_500_000) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '이미지 용량이 너무 큽니다. 더 작은 이미지를 사용해주세요' });
+        }
+      }
+
+      const user = await prisma.user.update({
+        where: { id: ctx.userId },
+        data: { image },
+      });
+
+      return {
+        image: user.image,
+      };
+    }),
+
   summary: publicProcedure.query(async ({ ctx }) => {
     const userId = await getOrCreateGuestUserId(ctx.userId);
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -46,6 +76,7 @@ export const profileRouter = createTRPCRouter({
     return {
       user: {
         name: user?.name ?? '게스트',
+        image: user?.image ?? null,
         isGuest: user?.provider === 'guest',
       },
       stats: {
@@ -55,7 +86,8 @@ export const profileRouter = createTRPCRouter({
         totalDistance: runStats._sum.distance ?? 0,
         totalDuration: runStats._sum.duration ?? 0,
       },
-      tier: getTier(collectionCount),
+      collectorTier: getCollectorTier(collectionCount),
+      creatorTier: getCreatorTier(createdCount),
       createdCoursePreview: createdCourses.map((course) => ({
         id: course.id,
         title: course.title,

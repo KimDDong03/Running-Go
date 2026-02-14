@@ -1,29 +1,26 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
-
-// 개발용 더미 토큰
-mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.dev.mapbox.token';
 
 interface MapProps {
   className?: string;
-  onMapLoad?: (map: mapboxgl.Map) => void;
+  onMapLoad?: (map: maplibregl.Map) => void;
   center?: [number, number];
   zoom?: number;
 }
 
 export function Map({ className, onMapLoad, center = [126.978, 37.5665], zoom = 13 }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
+  const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     if (!mapContainer.current) return;
 
-    map.current = new mapboxgl.Map({
+    map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: NAVER_LIKE_MAP_STYLE,
       center: center,
