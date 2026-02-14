@@ -6,7 +6,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Pause, Play, Square } from 'lucide-react';
+import { LocateFixed, Pause, Play, Square } from 'lucide-react';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
 
@@ -29,6 +29,7 @@ function RunPageContent() {
   const [distance, setDistance] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentAccuracy, setCurrentAccuracy] = useState<number | null>(null);
+  const [isAutoCenterEnabled, setIsAutoCenterEnabled] = useState(true);
   const lastRecordedAtRef = useRef<number | null>(null);
   const watchId = useRef<number | null>(null);
   const startTime = useRef<number | null>(null);
@@ -40,6 +41,8 @@ function RunPageContent() {
   const pausedAtRef = useRef<number | null>(null);
   const pausedDurationRef = useRef(0);
   const lastPositionRef = useRef<GeolocationPosition | null>(null);
+  const isAutoCenterRef = useRef(true);
+  const courseWaypointsRef = useRef<{ lat: number; lng: number; order: number }[]>([]);
   const searchParams = useSearchParams();
   const courseId = searchParams.get('courseId');
   const router = useRouter();
@@ -51,12 +54,20 @@ function RunPageContent() {
     isTrackingRef.current = isTracking;
   }, [isTracking]);
 
+  useEffect(() => {
+    isAutoCenterRef.current = isAutoCenterEnabled;
+  }, [isAutoCenterEnabled]);
+
   const courseWaypoints = useMemo(() => {
     if (!course || !Array.isArray(course.waypoints)) return [] as { lat: number; lng: number; order: number }[];
     return [...(course.waypoints as { lat: number; lng: number; order: number }[])].sort(
       (a, b) => a.order - b.order
     );
   }, [course]);
+
+  useEffect(() => {
+    courseWaypointsRef.current = courseWaypoints;
+  }, [courseWaypoints]);
 
   const handleNewPoint = (latitude: number, longitude: number, accuracy: number, timestamp: number) => {
     setCurrentAccuracy(accuracy);
@@ -102,7 +113,43 @@ function RunPageContent() {
         .addTo(map.current);
     }
 
-    map.current?.setCenter([longitude, latitude]);
+    if (!isTrackingRef.current || isAutoCenterRef.current) {
+      map.current?.setCenter([longitude, latitude]);
+    }
+  };
+
+  const fitMapToCourse = (points: { lat: number; lng: number }[]) => {
+    if (!map.current || points.length < 2) return;
+
+    const bounds = new mapboxgl.LngLatBounds();
+    points.forEach((point) => bounds.extend([point.lng, point.lat]));
+
+    map.current.fitBounds(bounds, {
+      padding: { top: 150, right: 40, bottom: 220, left: 40 },
+      duration: 500,
+      maxZoom: 16,
+    });
+  };
+
+  const handleRecenter = () => {
+    const lastPosition = lastPositionRef.current;
+    if (lastPosition) {
+      map.current?.easeTo({
+        center: [lastPosition.coords.longitude, lastPosition.coords.latitude],
+        duration: 400,
+      });
+      setIsAutoCenterEnabled(true);
+      return;
+    }
+
+    const markerPosition = currentMarker.current?.getLngLat();
+    if (markerPosition) {
+      map.current?.easeTo({
+        center: [markerPosition.lng, markerPosition.lat],
+        duration: 400,
+      });
+      setIsAutoCenterEnabled(true);
+    }
   };
 
   // Initialize map
@@ -135,9 +182,20 @@ function RunPageContent() {
       updateCurrentMarker(lat, lng);
     };
 
+    const handleManualMove = () => {
+      if (!isTrackingRef.current || !isAutoCenterRef.current) return;
+      setIsAutoCenterEnabled(false);
+    };
+
     map.current.on('load', () => {
       mapLoadedRef.current = true;
       applyMapStyle();
+
+      const initialCoursePoints = courseWaypointsRef.current;
+      if (initialCoursePoints.length >= 2) {
+        updateCourseLine(initialCoursePoints);
+        fitMapToCourse(initialCoursePoints);
+      }
 
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
@@ -153,9 +211,13 @@ function RunPageContent() {
       }
     });
     map.current.on('click', handleMapClick);
+    map.current.on('dragstart', handleManualMove);
+    map.current.on('zoomstart', handleManualMove);
 
     return () => {
       map.current?.off('click', handleMapClick);
+      map.current?.off('dragstart', handleManualMove);
+      map.current?.off('zoomstart', handleManualMove);
       map.current?.remove();
     };
   }, []);
@@ -207,6 +269,7 @@ function RunPageContent() {
     setDuration(0);
     setHasPath(false);
     setIsPaused(false);
+    setIsAutoCenterEnabled(true);
     pausedDurationRef.current = 0;
     pausedAtRef.current = null;
     lastPositionRef.current = null;
@@ -243,6 +306,7 @@ function RunPageContent() {
     }
     setIsTracking(false);
     setIsPaused(false);
+    setIsAutoCenterEnabled(true);
     pausedAtRef.current = null;
     setHasPath(false);
     lastRecordedAtRef.current = null;
@@ -451,7 +515,10 @@ function RunPageContent() {
   useEffect(() => {
     if (!mapLoadedRef.current || !courseWaypoints.length) return;
     updateCourseLine(courseWaypoints);
-  }, [courseWaypoints]);
+    if (!isTrackingRef.current && !hasPath) {
+      fitMapToCourse(courseWaypoints);
+    }
+  }, [courseWaypoints, hasPath]);
 
   useEffect(() => {
     if (isPaused) {
@@ -520,6 +587,25 @@ function RunPageContent() {
             정확도 {currentAccuracy ? `±${Math.round(currentAccuracy)}m` : '-'}
           </div>
         </div>
+
+        {course && courseWaypoints.length >= 2 ? (
+          <div className="absolute top-36 left-4 right-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/90 px-4 py-2 text-xs text-emerald-800 shadow-sm backdrop-blur">
+            목표 코스: <span className="font-semibold">{course.title}</span> · {(course.totalDistance ?? 0).toFixed(1)}km
+          </div>
+        ) : null}
+
+        {isTracking && !isAutoCenterEnabled ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="absolute bottom-36 right-4 rounded-full border border-white/70 bg-white/90 shadow-lg"
+            onClick={handleRecenter}
+          >
+            <LocateFixed className="mr-1 h-4 w-4" />
+            Centered
+          </Button>
+        ) : null}
       </div>
 
       {/* Controls */}
