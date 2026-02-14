@@ -33,9 +33,15 @@ const parsePlanCodeFromRawPayload = (value: unknown) => {
   return typeof planCode === 'string' ? planCode : null;
 };
 
-const toJsonPayload = (value: unknown): Prisma.InputJsonValue | undefined => {
-  if (value === undefined || value === null) {
+const toJsonPayload = (
+  value: unknown
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined => {
+  if (value === undefined) {
     return undefined;
+  }
+
+  if (value === null) {
+    return Prisma.JsonNull;
   }
 
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;

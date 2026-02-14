@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { Prisma } from '@prisma/client';
 import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 import { getServerEnv } from '@/lib/env';
@@ -49,8 +48,20 @@ const getPlanDelegate = () => {
   };
 };
 
+const hasErrorCode = (error: unknown): error is { code: string } => {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  if (!('code' in error)) {
+    return false;
+  }
+
+  return typeof (error as { code?: unknown }).code === 'string';
+};
+
 const isMissingMonetizationTableError = (error: unknown) => {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021';
+  return hasErrorCode(error) && error.code === 'P2021';
 };
 
 const ensureDefaultPlans = async () => {
@@ -221,7 +232,13 @@ export const billingRouter = createTRPCRouter({
             },
           }
         : null,
-      entitlements: entitlements.map((entitlement) => ({
+      entitlements: entitlements.map((entitlement: {
+        id: string;
+        type: string;
+        source: string;
+        startsAt: Date;
+        endsAt: Date | null;
+      }) => ({
         id: entitlement.id,
         type: entitlement.type,
         source: entitlement.source,
