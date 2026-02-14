@@ -13,6 +13,7 @@ import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabB
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Heart, LocateFixed, MapPin } from 'lucide-react';
@@ -36,6 +37,26 @@ const DEFAULT_CENTER = {
 };
 
 const INITIAL_PANEL_HEIGHT = 180;
+const ONBOARDING_STORAGE_KEY = 'running-go:onboarding:v1';
+
+const ONBOARDING_STEPS = [
+  {
+    title: '러닝고 시작 가이드',
+    description: '지도를 움직이며 주변 코스를 찾고, 원하는 코스를 바로 러닝에 연결할 수 있어요.',
+  },
+  {
+    title: '코스 탐색',
+    description: '지도에서 마커를 누르거나 아래 코스 목록을 눌러 코스 라인을 확인해보세요.',
+  },
+  {
+    title: '정렬과 위치',
+    description: '코스 목록 정렬을 바꾸고, 우하단 위치 버튼으로 현재 위치로 빠르게 이동할 수 있어요.',
+  },
+  {
+    title: '바로 러닝 시작',
+    description: '코스를 선택하면 상단의 버튼으로 즉시 러닝을 시작할 수 있어요. 즐겁게 달려보세요!',
+  },
+] as const;
 
 const getPanelSnapHeights = () => {
   const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 900;
@@ -100,6 +121,8 @@ export default function CoursesPage() {
     lng: DEFAULT_CENTER.lng,
     radiusKm: 5,
   });
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -579,8 +602,88 @@ export default function CoursesPage() {
     );
   };
 
+  const closeOnboarding = () => {
+    setIsOnboardingOpen(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+    }
+  };
+
+  const handleOnboardingNext = () => {
+    if (onboardingStepIndex >= ONBOARDING_STEPS.length - 1) {
+      closeOnboarding();
+      return;
+    }
+    setOnboardingStepIndex((prev) => prev + 1);
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hasSeenOnboarding = window.localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1';
+    if (hasSeenOnboarding) return;
+    setOnboardingStepIndex(0);
+    setIsOnboardingOpen(true);
+  }, []);
+
+  const onboardingStep = ONBOARDING_STEPS[onboardingStepIndex];
+  const isLastOnboardingStep = onboardingStepIndex === ONBOARDING_STEPS.length - 1;
+
   return (
     <div className="h-[100dvh] overscroll-none overflow-hidden flex flex-col">
+      <Dialog
+        open={isOnboardingOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeOnboarding();
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="max-w-[calc(100%-2rem)] rounded-3xl border border-white/70 bg-white/95 p-5 shadow-[0_24px_48px_-30px_rgba(15,23,42,0.65)] sm:max-w-md"
+        >
+          <DialogHeader className="space-y-2 text-left">
+            <p className="text-xs font-medium text-slate-500">
+              {onboardingStepIndex + 1} / {ONBOARDING_STEPS.length}
+            </p>
+            <DialogTitle className="text-xl font-semibold tracking-tight text-slate-900">
+              {onboardingStep.title}
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-6 text-slate-600">
+              {onboardingStep.description}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-2 flex-row items-center justify-between gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rg-touch h-10 rounded-full px-4 text-slate-500"
+              onClick={closeOnboarding}
+            >
+              건너뛰기
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rg-touch h-10 rounded-full border-white/70 bg-white"
+                onClick={() => setOnboardingStepIndex((prev) => Math.max(0, prev - 1))}
+                disabled={onboardingStepIndex === 0}
+              >
+                이전
+              </Button>
+              <Button
+                type="button"
+                className="rg-touch h-10 rounded-full px-5"
+                onClick={handleOnboardingNext}
+              >
+                {isLastOnboardingStep ? '시작하기' : '다음'}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <header className="rg-page-header shrink-0 px-4 py-5 sticky top-0 z-10">
         <div className="flex items-center justify-center">
             <h1 className="text-lg font-semibold tracking-tight text-slate-900">홈</h1>
