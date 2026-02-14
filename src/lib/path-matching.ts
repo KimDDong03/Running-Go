@@ -8,12 +8,12 @@ export interface GPSPoint extends LatLng {
   accuracy: number;
 }
 
-export const MATCH_THRESHOLD_METERS = 120;
-export const MIN_MATCH_RATE = 90;
+export const MATCH_THRESHOLD_METERS = 140;
+export const MIN_MATCH_RATE = 84;
 export const DEFAULT_MAX_ACCURACY = 20;
 export const DENSIFY_STEP_METERS = 8;
-export const TARGET_MATCH_DISTANCE_METERS = 60;
-export const MAX_MATCH_DISTANCE_METERS = 200;
+export const TARGET_MATCH_DISTANCE_METERS = 80;
+export const MAX_MATCH_DISTANCE_METERS = 230;
 export const MAX_SPEED_MPS = 7;
 export const MAX_JUMP_METERS = 120;
 export const MAX_JUMP_TIME_SECONDS = 5;

@@ -95,12 +95,19 @@ export default function CoursesPage() {
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [panelHeight, setPanelHeight] = useState<number>(INITIAL_PANEL_HEIGHT);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
+  const [nearbySearch, setNearbySearch] = useState<{ lat: number; lng: number; radiusKm: number }>({
+    lat: DEFAULT_CENTER.lat,
+    lng: DEFAULT_CENTER.lng,
+    radiusKm: 5,
+  });
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const userMarkerImageRef = useRef<string | null>(null);
   const courseMarkersRef = useRef<maplibregl.Marker[]>([]);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
 
   const courseListInput = useMemo(() => {
     if (listSort === 'NEAREST' && userLocation) {
@@ -124,10 +131,8 @@ export default function CoursesPage() {
   const maxPathPoints = 60;
 
   const { data: nearbyCourses, isLoading: isNearbyLoading, isError: isNearbyError, refetch: refetchNearby } = trpc.course.nearby.useQuery(
-    userLocation
-      ? { lat: userLocation.lat, lng: userLocation.lng, radiusKm: 5, limit: 30 }
-      : { lat: DEFAULT_CENTER.lat, lng: DEFAULT_CENTER.lng, radiusKm: 5, limit: 30 },
-    { enabled: viewMode === 'map' && Boolean(userLocation) }
+    { lat: nearbySearch.lat, lng: nearbySearch.lng, radiusKm: nearbySearch.radiusKm, limit: 30 },
+    { enabled: viewMode === 'map' }
   );
 
   const { data: selectedCourse, isLoading: isSelectedCourseLoading } = trpc.course.byId.useQuery(
@@ -264,6 +269,63 @@ export default function CoursesPage() {
 
     mapRef.current = mapInstance;
 
+    const syncNearbySearchWithViewport = (force = false) => {
+      const center = mapInstance.getCenter();
+      const bounds = mapInstance.getBounds();
+      const northEast = bounds.getNorthEast();
+      const radiusKmFromViewport = calculateDistanceKm(
+        center.lat,
+        center.lng,
+        northEast.lat,
+        northEast.lng
+      );
+
+      const nextZoom = mapInstance.getZoom();
+      const previousViewport = lastNearbyViewportRef.current;
+
+      if (!force && previousViewport) {
+        const movedDistanceKm = calculateDistanceKm(
+          previousViewport.lat,
+          previousViewport.lng,
+          center.lat,
+          center.lng
+        );
+        const zoomDelta = Math.abs(nextZoom - previousViewport.zoom);
+
+        if (movedDistanceKm < 0.3 && zoomDelta < 0.8) {
+          return;
+        }
+      }
+
+      lastNearbyViewportRef.current = {
+        lat: center.lat,
+        lng: center.lng,
+        zoom: nextZoom,
+      };
+
+      setNearbySearch({
+        lat: center.lat,
+        lng: center.lng,
+        radiusKm: Math.min(20, Math.max(1.5, radiusKmFromViewport)),
+      });
+    };
+
+    const scheduleNearbySearchSync = (force = false) => {
+      if (nearbySearchDebounceRef.current) {
+        clearTimeout(nearbySearchDebounceRef.current);
+        nearbySearchDebounceRef.current = null;
+      }
+
+      if (force) {
+        syncNearbySearchWithViewport(true);
+        return;
+      }
+
+      nearbySearchDebounceRef.current = setTimeout(() => {
+        syncNearbySearchWithViewport(false);
+      }, 500);
+    };
+
     const handleMapDragStart = () => {
       if (panelDragStateRef.current) return;
       collapsePanelToMin();
@@ -272,9 +334,11 @@ export default function CoursesPage() {
     const handleMapStyleData = () => {
       applyKoreanMapLabels(mapInstance);
       applyRoadVisualStyle(mapInstance);
+      scheduleNearbySearchSync(true);
     };
 
     mapInstance.on('dragstart', handleMapDragStart);
+    mapInstance.on('moveend', scheduleNearbySearchSync);
     mapInstance.on('load', handleMapStyleData);
     requestAnimationFrame(() => {
       mapInstance.resize();
@@ -282,7 +346,12 @@ export default function CoursesPage() {
 
     return () => {
       mapInstance.off('dragstart', handleMapDragStart);
+      mapInstance.off('moveend', scheduleNearbySearchSync);
       mapInstance.off('load', handleMapStyleData);
+      if (nearbySearchDebounceRef.current) {
+        clearTimeout(nearbySearchDebounceRef.current);
+        nearbySearchDebounceRef.current = null;
+      }
       courseMarkersRef.current.forEach((marker) => marker.remove());
       courseMarkersRef.current = [];
       userMarkerRef.current?.remove();
@@ -577,7 +646,7 @@ export default function CoursesPage() {
               >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">주변 코스 목록</p>
+                      <p className="text-sm font-semibold text-slate-900">코스 목록</p>
                     <p className="text-xs text-slate-500">{courses?.courses.length ?? 0}개 코스</p>
                   </div>
                   <select
