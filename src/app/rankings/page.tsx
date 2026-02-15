@@ -109,7 +109,7 @@ export default function RankingsPage() {
           <div className="rg-stagger space-y-4 pb-1">
             {data?.popularCourses.length ? (
               data.popularCourses.map((course, index) => (
-                <Link key={course.id} href={`/courses/${course.id}`} className="block">
+                <Link key={course.id} href={`/?focusCourseId=${course.id}`} className="block">
                   <Card className="rg-interactive-card rounded-[24px] border border-white/75 bg-white/85 shadow-[0_18px_34px_-24px_rgba(15,23,42,0.58)] overflow-hidden transition-transform hover:-translate-y-0.5">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-3">
@@ -193,14 +193,16 @@ export default function RankingsPage() {
           <div className="rg-stagger space-y-3">
             {data?.courseRankings.length ? (
               data.courseRankings.map((ranking, index) => (
-                <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{rankLabel(index)} {ranking.courseTitle}</div>
-                    </div>
-                    <div className="text-sm text-slate-500">{ranking.runCount}회</div>
-                  </CardContent>
-                </Card>
+                <Link key={ranking.id} href={`/?focusCourseId=${ranking.courseId}`} className="block">
+                  <Card className="rg-interactive-card rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
+                    <CardContent className="p-4 flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">{rankLabel(index)} {ranking.courseTitle}</div>
+                      </div>
+                      <div className="text-sm text-slate-500">{ranking.runCount}회</div>
+                    </CardContent>
+                  </Card>
+                </Link>
               ))
             ) : (
               <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>

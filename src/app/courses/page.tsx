@@ -250,6 +250,23 @@ export default function CoursesPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const focusCourseId = params.get('focusCourseId');
+    if (!focusCourseId) return;
+
+    setSelectedCourseId(focusCourseId);
+
+    params.delete('focusCourseId');
+    const queryString = params.toString();
+    const nextUrl = queryString
+      ? `${window.location.pathname}?${queryString}${window.location.hash}`
+      : `${window.location.pathname}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', nextUrl);
+  }, []);
+
+  useEffect(() => {
     if ((viewMode !== 'map' && listSort !== 'NEAREST') || userLocation) return;
 
     if (!navigator.geolocation) {
