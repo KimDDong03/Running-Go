@@ -1,12 +1,10 @@
 'use client';
 
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { trpc } from '@/components/providers/TRPCProvider';
-import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
+import { loadNaverMapsSdk, type NaverMapLike, type NaverMapMarkerLike, type NaverMapPolylineLike, type NaverMapsApi } from '@/lib/naver-map';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
 import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
@@ -116,6 +114,7 @@ export default function CoursesPage() {
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [panelHeight, setPanelHeight] = useState<number>(INITIAL_PANEL_HEIGHT);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
+  const [isNearbyCourseMarkerVisible, setIsNearbyCourseMarkerVisible] = useState(false);
   const [nearbySearch, setNearbySearch] = useState<{ lat: number; lng: number; radiusKm: number }>({
     lat: DEFAULT_CENTER.lat,
     lng: DEFAULT_CENTER.lng,
@@ -124,11 +123,15 @@ export default function CoursesPage() {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const naverMapsRef = useRef<NaverMapsApi | null>(null);
+  const mapRef = useRef<NaverMapLike | null>(null);
+  const userMarkerRef = useRef<NaverMapMarkerLike | null>(null);
   const userMarkerImageRef = useRef<string | null>(null);
-  const courseMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const courseMarkersRef = useRef<NaverMapMarkerLike[]>([]);
+  const selectedOutlinePolylineRef = useRef<NaverMapPolylineLike | null>(null);
+  const selectedMainPolylineRef = useRef<NaverMapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const panelScrollDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean } | null>(null);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
 
@@ -229,6 +232,54 @@ export default function CoursesPage() {
     snapPanelHeight(clampedHeight);
   };
 
+  const onPanelContentTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 1) return;
+    if (event.currentTarget.scrollTop > 0) return;
+
+    panelScrollDragStateRef.current = {
+      startY: event.touches[0].clientY,
+      startHeight: panelHeight,
+      lastHeight: panelHeight,
+      isDragging: false,
+    };
+  };
+
+  const onPanelContentTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const dragState = panelScrollDragStateRef.current;
+    if (!dragState || event.touches.length !== 1) return;
+
+    const touch = event.touches[0];
+    const delta = dragState.startY - touch.clientY;
+
+    if (delta >= -6) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const { min, max } = getPanelSnapHeights();
+    const nextHeight = dragState.startHeight + delta;
+    const clampedHeight = Math.max(min, Math.min(max, nextHeight));
+
+    dragState.isDragging = true;
+    dragState.lastHeight = clampedHeight;
+    setIsPanelDragging(true);
+    setPanelHeight(clampedHeight);
+  };
+
+  const onPanelContentTouchEnd = () => {
+    const dragState = panelScrollDragStateRef.current;
+    panelScrollDragStateRef.current = null;
+
+    if (!dragState || !dragState.isDragging) {
+      setIsPanelDragging(false);
+      return;
+    }
+
+    setIsPanelDragging(false);
+    snapPanelHeight(dragState.lastHeight);
+  };
+
   const collapsePanelToMin = () => {
     const { min } = getPanelSnapHeights();
     setPanelHeight((prev) => (prev > min ? min : prev));
@@ -297,149 +348,174 @@ export default function CoursesPage() {
     );
   }, [listSort, userLocation, viewMode]);
 
+  const toLatLng = (lat: number, lng: number) => {
+    const sdk = naverMapsRef.current;
+    if (!sdk) {
+      throw new Error('네이버 지도 SDK가 준비되지 않았습니다');
+    }
+    return new sdk.LatLng(lat, lng);
+  };
+
+  const clearCourseMarkers = () => {
+    courseMarkersRef.current.forEach((marker) => marker.setMap(null));
+    courseMarkersRef.current = [];
+  };
+
+  const clearSelectedPath = () => {
+    selectedOutlinePolylineRef.current?.setMap(null);
+    selectedMainPolylineRef.current?.setMap(null);
+    selectedOutlinePolylineRef.current = null;
+    selectedMainPolylineRef.current = null;
+  };
+
   useEffect(() => {
     if (viewMode !== 'map' || !mapContainerRef.current || mapRef.current) return;
 
-    const mapInstance = new maplibregl.Map({
-      container: mapContainerRef.current,
-      style: NAVER_LIKE_MAP_STYLE,
-      center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
-      zoom: 13,
-    });
+    let isMounted = true;
+    let dragListener: object | null = null;
+    let idleListener: object | null = null;
 
-    mapRef.current = mapInstance;
+    void loadNaverMapsSdk()
+      .then((sdk) => {
+        if (!isMounted || !mapContainerRef.current) return;
 
-    const syncNearbySearchWithViewport = (force = false) => {
-      const center = mapInstance.getCenter();
-      const bounds = mapInstance.getBounds();
-      const northEast = bounds.getNorthEast();
-      const radiusKmFromViewport = calculateDistanceKm(
-        center.lat,
-        center.lng,
-        northEast.lat,
-        northEast.lng
-      );
+        naverMapsRef.current = sdk;
+        const mapInstance = new sdk.Map(mapContainerRef.current, {
+          center: new sdk.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
+          zoom: 13,
+          mapTypeControl: false,
+          zoomControl: false,
+        });
 
-      const nextZoom = mapInstance.getZoom();
-      const previousViewport = lastNearbyViewportRef.current;
+        mapRef.current = mapInstance;
 
-      if (!force && previousViewport) {
-        const movedDistanceKm = calculateDistanceKm(
-          previousViewport.lat,
-          previousViewport.lng,
-          center.lat,
-          center.lng
-        );
-        const zoomDelta = Math.abs(nextZoom - previousViewport.zoom);
+        const syncNearbySearchWithViewport = (force = false) => {
+          const center = mapInstance.getCenter();
+          const bounds = mapInstance.getBounds();
+          const northEast = bounds.getNE();
+          const radiusKmFromViewport = calculateDistanceKm(
+            center.lat(),
+            center.lng(),
+            northEast.lat(),
+            northEast.lng()
+          );
 
-        if (movedDistanceKm < 0.3 && zoomDelta < 0.8) {
-          return;
-        }
-      }
+          const nextZoom = mapInstance.getZoom();
+          const previousViewport = lastNearbyViewportRef.current;
 
-      lastNearbyViewportRef.current = {
-        lat: center.lat,
-        lng: center.lng,
-        zoom: nextZoom,
-      };
+          if (!force && previousViewport) {
+            const movedDistanceKm = calculateDistanceKm(
+              previousViewport.lat,
+              previousViewport.lng,
+              center.lat(),
+              center.lng()
+            );
+            const zoomDelta = Math.abs(nextZoom - previousViewport.zoom);
 
-      setNearbySearch({
-        lat: center.lat,
-        lng: center.lng,
-        radiusKm: Math.min(20, Math.max(1.5, radiusKmFromViewport)),
+            if (movedDistanceKm < 0.3 && zoomDelta < 0.8) {
+              return;
+            }
+          }
+
+          lastNearbyViewportRef.current = {
+            lat: center.lat(),
+            lng: center.lng(),
+            zoom: nextZoom,
+          };
+
+          setNearbySearch({
+            lat: center.lat(),
+            lng: center.lng(),
+            radiusKm: Math.min(20, Math.max(1.5, radiusKmFromViewport)),
+          });
+        };
+
+        const scheduleNearbySearchSync = (force = false) => {
+          if (nearbySearchDebounceRef.current) {
+            clearTimeout(nearbySearchDebounceRef.current);
+            nearbySearchDebounceRef.current = null;
+          }
+
+          if (force) {
+            syncNearbySearchWithViewport(true);
+            return;
+          }
+
+          nearbySearchDebounceRef.current = setTimeout(() => {
+            syncNearbySearchWithViewport(false);
+          }, 500);
+        };
+
+        const handleMapDragStart = () => {
+          if (panelDragStateRef.current) return;
+          collapsePanelToMin();
+        };
+
+        dragListener = sdk.Event.addListener(mapInstance, 'dragstart', handleMapDragStart);
+        idleListener = sdk.Event.addListener(mapInstance, 'idle', () => scheduleNearbySearchSync(false));
+        scheduleNearbySearchSync(true);
+      })
+      .catch(() => {
+        setLocationError('지도를 불러오지 못했습니다. 잠시 후 다시 시도해주세요');
       });
-    };
-
-    const scheduleNearbySearchSync = (force = false) => {
-      if (nearbySearchDebounceRef.current) {
-        clearTimeout(nearbySearchDebounceRef.current);
-        nearbySearchDebounceRef.current = null;
-      }
-
-      if (force) {
-        syncNearbySearchWithViewport(true);
-        return;
-      }
-
-      nearbySearchDebounceRef.current = setTimeout(() => {
-        syncNearbySearchWithViewport(false);
-      }, 500);
-    };
-
-    const handleMapDragStart = () => {
-      if (panelDragStateRef.current) return;
-      collapsePanelToMin();
-    };
-
-    const handleMapStyleData = () => {
-      applyKoreanMapLabels(mapInstance);
-      applyRoadVisualStyle(mapInstance);
-      scheduleNearbySearchSync(true);
-    };
-
-    mapInstance.on('dragstart', handleMapDragStart);
-    mapInstance.on('moveend', scheduleNearbySearchSync);
-    mapInstance.on('load', handleMapStyleData);
-    requestAnimationFrame(() => {
-      mapInstance.resize();
-    });
 
     return () => {
-      mapInstance.off('dragstart', handleMapDragStart);
-      mapInstance.off('moveend', scheduleNearbySearchSync);
-      mapInstance.off('load', handleMapStyleData);
+      isMounted = false;
+      if (naverMapsRef.current && dragListener) {
+        naverMapsRef.current.Event.removeListener(dragListener);
+      }
+      if (naverMapsRef.current && idleListener) {
+        naverMapsRef.current.Event.removeListener(idleListener);
+      }
       if (nearbySearchDebounceRef.current) {
         clearTimeout(nearbySearchDebounceRef.current);
         nearbySearchDebounceRef.current = null;
       }
-      courseMarkersRef.current.forEach((marker) => marker.remove());
-      courseMarkersRef.current = [];
-      userMarkerRef.current?.remove();
+      clearCourseMarkers();
+      clearSelectedPath();
+      userMarkerRef.current?.setMap(null);
       userMarkerRef.current = null;
-      mapInstance.remove();
+      mapRef.current?.destroy();
       mapRef.current = null;
     };
   }, [viewMode]);
 
   useEffect(() => {
-    if (viewMode !== 'map' || !mapContainerRef.current) return;
+    if (viewMode !== 'map' || !mapRef.current || !naverMapsRef.current || !userLocation) return;
 
-    const container = mapContainerRef.current;
-    const observer = new ResizeObserver(() => {
-      mapRef.current?.resize();
-    });
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [viewMode]);
-
-  useEffect(() => {
-    if (viewMode !== 'map' || !mapRef.current || !userLocation) return;
-
-    const center: [number, number] = [userLocation.lng, userLocation.lat];
+    const center = toLatLng(userLocation.lat, userLocation.lng);
     const markerImage = profileSummary?.user.image ?? null;
     mapRef.current.setCenter(center);
     mapRef.current.setZoom(14);
 
     if (!userMarkerRef.current || userMarkerImageRef.current !== markerImage) {
-      userMarkerRef.current?.remove();
-      userMarkerRef.current = new maplibregl.Marker({ element: createCurrentLocationMarkerElement(markerImage, { size: 36 }), anchor: 'center' })
-        .setLngLat(center)
-        .addTo(mapRef.current);
+      userMarkerRef.current?.setMap(null);
+      userMarkerRef.current = new naverMapsRef.current.Marker({
+        map: mapRef.current,
+        position: center,
+        icon: {
+          content: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
+          size: new naverMapsRef.current.Size(36, 36),
+          anchor: new naverMapsRef.current.Point(18, 18),
+        },
+      });
       userMarkerImageRef.current = markerImage;
       return;
     }
 
-    userMarkerRef.current.setLngLat(center);
+    userMarkerRef.current.setPosition(center);
   }, [profileSummary?.user.image, userLocation, viewMode]);
 
   useEffect(() => {
-    if (viewMode !== 'map' || !mapRef.current) return;
+    if (viewMode !== 'map' || !mapRef.current || !naverMapsRef.current) return;
 
-    courseMarkersRef.current.forEach((marker) => marker.remove());
-    courseMarkersRef.current = [];
+    const sdk = naverMapsRef.current;
+    const mapInstance = mapRef.current;
+    clearCourseMarkers();
+
+    if (!isNearbyCourseMarkerVisible) {
+      return;
+    }
 
     nearbyCourses?.courses.forEach((course) => {
       const markerButton = document.createElement('button');
@@ -455,92 +531,65 @@ export default function CoursesPage() {
         setSelectedCourseId((current) => (current === course.id ? null : course.id));
       };
 
-      const marker = new maplibregl.Marker({ element: markerButton, anchor: 'bottom' })
-        .setLngLat([course.centerLng, course.centerLat])
-        .addTo(mapRef.current!);
+      const marker = new sdk.Marker({
+        map: mapInstance,
+        position: toLatLng(course.centerLat, course.centerLng),
+        icon: {
+          content: markerButton,
+          size: new sdk.Size(36, 36),
+          anchor: new sdk.Point(18, 36),
+        },
+      });
 
       courseMarkersRef.current.push(marker);
     });
-  }, [nearbyCourses, selectedCourseId, viewMode]);
+  }, [isNearbyCourseMarkerVisible, nearbyCourses, selectedCourseId, viewMode]);
 
   useEffect(() => {
-    if (viewMode !== 'map' || !mapRef.current) return;
+    if (viewMode !== 'map' || !mapRef.current || !naverMapsRef.current) return;
 
+    const sdk = naverMapsRef.current;
     const mapInstance = mapRef.current;
-    const sourceId = 'selected-course-path';
-    const outlineLayerId = 'selected-course-path-outline';
-    const mainLayerId = 'selected-course-path-main';
-
-    const clearSelectedPath = () => {
-      if (mapInstance.getLayer(mainLayerId)) {
-        mapInstance.removeLayer(mainLayerId);
-      }
-      if (mapInstance.getLayer(outlineLayerId)) {
-        mapInstance.removeLayer(outlineLayerId);
-      }
-      if (mapInstance.getSource(sourceId)) {
-        mapInstance.removeSource(sourceId);
-      }
-    };
-
-    if (!selectedCourseId || !selectedCourse || selectedWaypointList.length < 2 || !mapInstance.isStyleLoaded()) {
+    if (!selectedCourseId || !selectedCourse || selectedWaypointList.length < 2) {
       clearSelectedPath();
       return;
     }
 
-    const coordinates: [number, number][] = selectedWaypointList.map((point) => [point.lng, point.lat]);
+    const path = selectedWaypointList.map((point) => toLatLng(point.lat, point.lng));
 
-    const pathData = {
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'LineString' as const,
-        coordinates,
-      },
-    };
-
-    if (mapInstance.getSource(sourceId)) {
-      (mapInstance.getSource(sourceId) as maplibregl.GeoJSONSource).setData(pathData);
+    if (selectedOutlinePolylineRef.current) {
+      selectedOutlinePolylineRef.current.setPath(path);
     } else {
-      mapInstance.addSource(sourceId, {
-        type: 'geojson',
-        data: pathData,
-      });
-
-      mapInstance.addLayer({
-        id: outlineLayerId,
-        type: 'line',
-        source: sourceId,
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 8,
-          'line-opacity': 0.78,
-        },
-      });
-
-      mapInstance.addLayer({
-        id: mainLayerId,
-        type: 'line',
-        source: sourceId,
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': '#22c55e',
-          'line-width': 6,
-          'line-opacity': 0.98,
-        },
+      selectedOutlinePolylineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#ffffff',
+        strokeWeight: 8,
+        strokeOpacity: 0.78,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
       });
     }
 
-    const bounds = new maplibregl.LngLatBounds();
-    coordinates.forEach((coordinate) => bounds.extend(coordinate));
-    mapInstance.fitBounds(bounds, { padding: 70, duration: 500, maxZoom: 15 });
+    if (selectedMainPolylineRef.current) {
+      selectedMainPolylineRef.current.setPath(path);
+    } else {
+      selectedMainPolylineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#22c55e',
+        strokeWeight: 6,
+        strokeOpacity: 0.98,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+    }
+
+    const bounds = new sdk.LatLngBounds();
+    path.forEach((coordinate) => bounds.extend(coordinate));
+    mapInstance.fitBounds(bounds, { top: 70, right: 70, bottom: 70, left: 70 });
   }, [selectedCourse, selectedCourseId, selectedWaypointList, viewMode]);
 
   const samplePath = (points: { lat: number; lng: number }[]) => {
@@ -586,11 +635,8 @@ export default function CoursesPage() {
     const moveMap = (lat: number, lng: number) => {
       setLocationError(null);
       setUserLocation({ lat, lng });
-      mapInstance.easeTo({
-        center: [lng, lat],
-        zoom: 14,
-        duration: 500,
-      });
+      mapInstance.setCenter(toLatLng(lat, lng));
+      mapInstance.setZoom(14);
       collapsePanelToMin();
     };
 
@@ -712,7 +758,7 @@ export default function CoursesPage() {
           <div className="relative min-h-[260px] h-full overflow-hidden rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] sm:min-h-[320px]">
             <div ref={mapContainerRef} className="h-full w-full" />
 
-            {isNearbyLoading && (
+            {isNearbyCourseMarkerVisible && isNearbyLoading && (
               <div className="absolute top-3 left-3 rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600">
                 주변 코스를 불러오는 중...
               </div>
@@ -763,16 +809,34 @@ export default function CoursesPage() {
                 onPointerDownCapture={(event) => {
                   event.stopPropagation();
                 }}
+                onTouchStart={onPanelContentTouchStart}
+                onTouchMove={onPanelContentTouchMove}
+                onTouchEnd={onPanelContentTouchEnd}
+                onTouchCancel={onPanelContentTouchEnd}
               >
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <div>
-                      <p className="text-sm font-semibold text-slate-900">코스 목록</p>
-                    <p className="text-xs text-slate-500">{courses?.courses.length ?? 0}개 코스</p>
+                <div className="mb-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">코스 목록</p>
+                      <p className="truncate text-xs text-slate-500">{courses?.courses.length ?? 0}개 코스</p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={isNearbyCourseMarkerVisible ? 'default' : 'outline'}
+                      className="rg-touch h-9 shrink-0 rounded-full px-3"
+                      onClick={() => {
+                        setIsNearbyCourseMarkerVisible((prev) => !prev);
+                      }}
+                    >
+                      <MapPin className="mr-1 h-3.5 w-3.5" />
+                      {isNearbyCourseMarkerVisible ? '마커 숨기기' : '마커 보기'}
+                    </Button>
                   </div>
                   <select
                     value={listSort}
                     onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
-                    className="rg-touch h-11 rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
+                    className="rg-touch h-11 w-full rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
                   >
                     <option value="LATEST">최신순</option>
                     <option value="LIKES_DESC">좋아요 많은순</option>

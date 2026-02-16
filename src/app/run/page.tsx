@@ -2,8 +2,6 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +14,13 @@ import {
 } from '@/components/ui/dialog';
 import { ChevronLeft, LocateFixed, Pause, Play, Square } from 'lucide-react';
 import { trpc } from '@/components/providers/TRPCProvider';
-import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
+import {
+  loadNaverMapsSdk,
+  type NaverMapLike,
+  type NaverMapMarkerLike,
+  type NaverMapPolylineLike,
+  type NaverMapsApi,
+} from '@/lib/naver-map';
 import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
 import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
 
@@ -32,9 +36,19 @@ const MAX_ALLOWED_ACCURACY_METERS = 20;
 const MIN_MOVEMENT_METERS = 2;
 const MAX_RUNNING_SPEED_MPS = 8.5;
 
+const hasCoord = (value: unknown): value is { coord: { lat: () => number; lng: () => number } } => {
+  if (!value || typeof value !== 'object') return false;
+  if (!('coord' in value)) return false;
+  const coord = (value as { coord?: unknown }).coord;
+  if (!coord || typeof coord !== 'object') return false;
+  return typeof (coord as { lat?: unknown }).lat === 'function' && typeof (coord as { lng?: unknown }).lng === 'function';
+};
+
 function RunPageContent() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
+  const naverMapsRef = useRef<NaverMapsApi | null>(null);
+  const map = useRef<NaverMapLike | null>(null);
+
   const [isTracking, setIsTracking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [hasPath, setHasPath] = useState(false);
@@ -44,12 +58,17 @@ function RunPageContent() {
   const [currentAccuracy, setCurrentAccuracy] = useState<number | null>(null);
   const [isAutoCenterEnabled, setIsAutoCenterEnabled] = useState(true);
   const [isStopDialogOpen, setIsStopDialogOpen] = useState(false);
+
   const lastRecordedAtRef = useRef<number | null>(null);
   const watchId = useRef<number | null>(null);
   const startTime = useRef<number | null>(null);
   const intervalId = useRef<NodeJS.Timeout | null>(null);
-  const currentMarker = useRef<maplibregl.Marker | null>(null);
+  const currentMarker = useRef<NaverMapMarkerLike | null>(null);
   const currentMarkerImageRef = useRef<string | null>(null);
+  const runPathOutlineRef = useRef<NaverMapPolylineLike | null>(null);
+  const runPathMainRef = useRef<NaverMapPolylineLike | null>(null);
+  const coursePathOutlineRef = useRef<NaverMapPolylineLike | null>(null);
+  const coursePathMainRef = useRef<NaverMapPolylineLike | null>(null);
   const mapLoadedRef = useRef(false);
   const isTrackingRef = useRef(false);
   const pathRef = useRef<GPSPoint[]>([]);
@@ -59,9 +78,11 @@ function RunPageContent() {
   const isAutoCenterRef = useRef(true);
   const courseWaypointsRef = useRef<{ lat: number; lng: number; order: number }[]>([]);
   const hasInitialLocationRef = useRef(false);
+
   const searchParams = useSearchParams();
   const courseId = searchParams.get('courseId');
   const router = useRouter();
+
   const collectMutation = trpc.collection.collect.useMutation();
   const freeRunMutation = trpc.runSession.createFreeRun.useMutation();
   const { data: course } = trpc.course.byId.useQuery({ id: courseId ?? '' }, { enabled: Boolean(courseId) });
@@ -77,23 +98,270 @@ function RunPageContent() {
 
   const courseWaypoints = useMemo(() => {
     if (!course || !Array.isArray(course.waypoints)) return [] as { lat: number; lng: number; order: number }[];
-    return [...(course.waypoints as { lat: number; lng: number; order: number }[])].sort(
-      (a, b) => a.order - b.order
-    );
+    return [...(course.waypoints as { lat: number; lng: number; order: number }[])].sort((a, b) => a.order - b.order);
   }, [course]);
 
   useEffect(() => {
     courseWaypointsRef.current = courseWaypoints;
   }, [courseWaypoints]);
 
+  const calculateDistance = (p1: { lat: number; lng: number }, p2: { lat: number; lng: number }): number => {
+    const R = 6371e3;
+    const phi1 = p1.lat * Math.PI / 180;
+    const phi2 = p2.lat * Math.PI / 180;
+    const deltaPhi = (p2.lat - p1.lat) * Math.PI / 180;
+    const deltaLambda = (p2.lng - p1.lng) * Math.PI / 180;
+    const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2)
+      + Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const toLatLng = (lat: number, lng: number) => {
+    const sdk = naverMapsRef.current;
+    if (!sdk) return null;
+    return new sdk.LatLng(lat, lng);
+  };
+
+  const updateCurrentMarker = (latitude: number, longitude: number) => {
+    const sdk = naverMapsRef.current;
+    const mapInstance = map.current;
+    const position = toLatLng(latitude, longitude);
+    if (!sdk || !mapInstance || !position) return;
+
+    const markerImage = profileSummary?.user.image ?? null;
+
+    if (!currentMarker.current || currentMarkerImageRef.current !== markerImage) {
+      currentMarker.current?.setMap(null);
+      currentMarker.current = new sdk.Marker({
+        map: mapInstance,
+        position,
+        icon: {
+          content: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
+          size: new sdk.Size(36, 36),
+          anchor: new sdk.Point(18, 18),
+        },
+      });
+      currentMarkerImageRef.current = markerImage;
+    } else {
+      currentMarker.current.setPosition(position);
+    }
+
+    if (!isTrackingRef.current || isAutoCenterRef.current) {
+      mapInstance.setCenter(position);
+    }
+  };
+
+  const fitMapToCourse = (points: { lat: number; lng: number }[]) => {
+    const sdk = naverMapsRef.current;
+    const mapInstance = map.current;
+    if (!sdk || !mapInstance || points.length < 2) return;
+
+    const bounds = new sdk.LatLngBounds();
+    points.forEach((point) => {
+      const latLng = new sdk.LatLng(point.lat, point.lng);
+      bounds.extend(latLng);
+    });
+    mapInstance.fitBounds(bounds, { top: 150, right: 40, bottom: 220, left: 40 });
+  };
+
+  const handleRecenter = () => {
+    const lastPosition = lastPositionRef.current;
+    if (lastPosition) {
+      const nextCenter = toLatLng(lastPosition.coords.latitude, lastPosition.coords.longitude);
+      if (nextCenter && map.current) {
+        map.current.setCenter(nextCenter);
+      }
+      setIsAutoCenterEnabled(true);
+      return;
+    }
+  };
+
+  const clearRunPath = () => {
+    runPathOutlineRef.current?.setMap(null);
+    runPathMainRef.current?.setMap(null);
+    runPathOutlineRef.current = null;
+    runPathMainRef.current = null;
+  };
+
+  const clearCoursePath = () => {
+    coursePathOutlineRef.current?.setMap(null);
+    coursePathMainRef.current?.setMap(null);
+    coursePathOutlineRef.current = null;
+    coursePathMainRef.current = null;
+  };
+
+  const updatePathLine = (points: GPSPoint[]) => {
+    const sdk = naverMapsRef.current;
+    const mapInstance = map.current;
+    if (!sdk || !mapInstance || points.length < 2) return;
+
+    const path = points
+      .map((point) => new sdk.LatLng(point.lat, point.lng));
+
+    if (runPathOutlineRef.current) {
+      runPathOutlineRef.current.setPath(path);
+    } else {
+      runPathOutlineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#ffffff',
+        strokeWeight: 8,
+        strokeOpacity: 0.9,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+    }
+
+    if (runPathMainRef.current) {
+      runPathMainRef.current.setPath(path);
+    } else {
+      runPathMainRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#0ea5e9',
+        strokeWeight: 6,
+        strokeOpacity: 0.98,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+    }
+  };
+
+  const updateCourseLine = (points: { lat: number; lng: number }[]) => {
+    const sdk = naverMapsRef.current;
+    const mapInstance = map.current;
+    if (!sdk || !mapInstance || points.length < 2) {
+      clearCoursePath();
+      return;
+    }
+
+    const path = points.map((point) => new sdk.LatLng(point.lat, point.lng));
+
+    if (coursePathOutlineRef.current) {
+      coursePathOutlineRef.current.setPath(path);
+    } else {
+      coursePathOutlineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#ffffff',
+        strokeWeight: 8,
+        strokeOpacity: 0.75,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+    }
+
+    if (coursePathMainRef.current) {
+      coursePathMainRef.current.setPath(path);
+    } else {
+      coursePathMainRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#22c55e',
+        strokeWeight: 5,
+        strokeOpacity: 0.9,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!mapContainer.current || map.current) return;
+
+    let isMounted = true;
+    let clickListener: object | null = null;
+    let dragListener: object | null = null;
+    let zoomListener: object | null = null;
+
+    void loadNaverMapsSdk()
+      .then((sdk) => {
+        if (!isMounted || !mapContainer.current) return;
+
+        naverMapsRef.current = sdk;
+        map.current = new sdk.Map(mapContainer.current, {
+          center: new sdk.LatLng(37.5665, 126.978),
+          zoom: 15,
+          mapTypeControl: false,
+          zoomControl: false,
+        });
+        mapLoadedRef.current = true;
+
+        const handleMapClick = (event: unknown) => {
+          if (isTrackingRef.current) return;
+          if (!hasCoord(event)) return;
+          updateCurrentMarker(event.coord.lat(), event.coord.lng());
+        };
+
+        const handleManualMove = () => {
+          if (!isTrackingRef.current || !isAutoCenterRef.current) return;
+          setIsAutoCenterEnabled(false);
+        };
+
+        clickListener = sdk.Event.addListener(map.current, 'click', handleMapClick);
+        dragListener = sdk.Event.addListener(map.current, 'dragstart', handleManualMove);
+        zoomListener = sdk.Event.addListener(map.current, 'zoom_start', handleManualMove);
+
+        const initialCoursePoints = courseWaypointsRef.current;
+        if (initialCoursePoints.length >= 2) {
+          updateCourseLine(initialCoursePoints);
+          fitMapToCourse(initialCoursePoints);
+        }
+
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              hasInitialLocationRef.current = true;
+              updateCurrentMarker(position.coords.latitude, position.coords.longitude);
+              const initial = new sdk.LatLng(position.coords.latitude, position.coords.longitude);
+              map.current?.setCenter(initial);
+              map.current?.setZoom(15);
+            },
+            () => {},
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+          );
+        }
+      })
+      .catch(() => {
+        toast.error('지도를 불러오지 못했습니다');
+      });
+
+    return () => {
+      isMounted = false;
+      if (naverMapsRef.current && clickListener) {
+        naverMapsRef.current.Event.removeListener(clickListener);
+      }
+      if (naverMapsRef.current && dragListener) {
+        naverMapsRef.current.Event.removeListener(dragListener);
+      }
+      if (naverMapsRef.current && zoomListener) {
+        naverMapsRef.current.Event.removeListener(zoomListener);
+      }
+      clearRunPath();
+      clearCoursePath();
+      currentMarker.current?.setMap(null);
+      currentMarker.current = null;
+      map.current?.destroy();
+      map.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapLoadedRef.current || !courseWaypoints.length) return;
+    updateCourseLine(courseWaypoints);
+    if (!isTrackingRef.current && !hasPath && !hasInitialLocationRef.current) {
+      fitMapToCourse(courseWaypoints);
+    }
+  }, [courseWaypoints, hasPath]);
+
   const handleNewPoint = (latitude: number, longitude: number, accuracy: number, timestamp: number) => {
     setCurrentAccuracy(accuracy);
-    const newPoint: GPSPoint = {
-      lat: latitude,
-      lng: longitude,
-      timestamp,
-      accuracy,
-    };
+    const newPoint: GPSPoint = { lat: latitude, lng: longitude, timestamp, accuracy };
 
     updateCurrentMarker(latitude, longitude);
 
@@ -111,13 +379,8 @@ function RunPageContent() {
       const movementMeters = calculateDistance(previousPoint, newPoint);
       const speed = movementMeters / elapsedSeconds;
 
-      if (movementMeters < MIN_MOVEMENT_METERS) {
-        return;
-      }
-
-      if (speed > MAX_RUNNING_SPEED_MPS) {
-        return;
-      }
+      if (movementMeters < MIN_MOVEMENT_METERS) return;
+      if (speed > MAX_RUNNING_SPEED_MPS) return;
     }
 
     lastRecordedAtRef.current = timestamp;
@@ -133,156 +396,8 @@ function RunPageContent() {
       updatePathLine(nextPath);
       return nextPath;
     });
-
-    
   };
 
-  const updateCurrentMarker = (latitude: number, longitude: number) => {
-    const markerImage = profileSummary?.user.image ?? null;
-
-    if (!currentMarker.current || currentMarkerImageRef.current !== markerImage) {
-      currentMarker.current?.remove();
-      currentMarker.current = null;
-    }
-
-    if (currentMarker.current) {
-      currentMarker.current.setLngLat([longitude, latitude]);
-    } else if (map.current) {
-      currentMarker.current = new maplibregl.Marker({
-        element: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
-        anchor: 'center',
-      })
-        .setLngLat([longitude, latitude])
-        .addTo(map.current);
-      currentMarkerImageRef.current = markerImage;
-    }
-
-    if (!isTrackingRef.current || isAutoCenterRef.current) {
-      map.current?.setCenter([longitude, latitude]);
-    }
-  };
-
-  const fitMapToCourse = (points: { lat: number; lng: number }[]) => {
-    if (!map.current || points.length < 2) return;
-
-    const bounds = new maplibregl.LngLatBounds();
-    points.forEach((point) => bounds.extend([point.lng, point.lat]));
-
-    map.current.fitBounds(bounds, {
-      padding: { top: 150, right: 40, bottom: 220, left: 40 },
-      duration: 500,
-      maxZoom: 16,
-    });
-  };
-
-  const handleRecenter = () => {
-    const lastPosition = lastPositionRef.current;
-    if (lastPosition) {
-      map.current?.easeTo({
-        center: [lastPosition.coords.longitude, lastPosition.coords.latitude],
-        duration: 400,
-      });
-      setIsAutoCenterEnabled(true);
-      return;
-    }
-
-    const markerPosition = currentMarker.current?.getLngLat();
-    if (markerPosition) {
-      map.current?.easeTo({
-        center: [markerPosition.lng, markerPosition.lat],
-        duration: 400,
-      });
-      setIsAutoCenterEnabled(true);
-    }
-  };
-
-  // Initialize map
-  useEffect(() => {
-    if (!mapContainer.current) return;
-
-    map.current = new maplibregl.Map({
-      container: mapContainer.current,
-      style: NAVER_LIKE_MAP_STYLE,
-      center: [126.978, 37.5665],
-      zoom: 15,
-    });
-
-    const applyMapStyle = () => {
-      const mapInstance = map.current;
-      if (!mapInstance) return;
-      applyKoreanMapLabels(mapInstance);
-      applyRoadVisualStyle(mapInstance);
-    };
-
-    const handleMapClick = (event: maplibregl.MapMouseEvent) => {
-      if (isTrackingRef.current) return;
-      const { lat, lng } = event.lngLat;
-      updateCurrentMarker(lat, lng);
-    };
-
-    const handleManualMove = () => {
-      if (!isTrackingRef.current || !isAutoCenterRef.current) return;
-      setIsAutoCenterEnabled(false);
-    };
-
-    map.current.on('load', () => {
-      mapLoadedRef.current = true;
-      applyMapStyle();
-
-      const initialCoursePoints = courseWaypointsRef.current;
-      if (initialCoursePoints.length >= 2) {
-        updateCourseLine(initialCoursePoints);
-        fitMapToCourse(initialCoursePoints);
-      }
-
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            hasInitialLocationRef.current = true;
-            updateCurrentMarker(
-              position.coords.latitude,
-              position.coords.longitude
-            );
-            map.current?.easeTo({
-              center: [position.coords.longitude, position.coords.latitude],
-              zoom: 15,
-              duration: 450,
-            });
-          },
-          () => {},
-          { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-        );
-      }
-    });
-    map.current.on('click', handleMapClick);
-    map.current.on('dragstart', handleManualMove);
-    map.current.on('zoomstart', handleManualMove);
-
-    return () => {
-      map.current?.off('click', handleMapClick);
-      map.current?.off('dragstart', handleManualMove);
-      map.current?.off('zoomstart', handleManualMove);
-      map.current?.remove();
-    };
-  }, []);
-
-  // Calculate distance
-  const calculateDistance = (p1: { lat: number; lng: number }, p2: { lat: number; lng: number }): number => {
-    const R = 6371e3;
-    const φ1 = p1.lat * Math.PI / 180;
-    const φ2 = p2.lat * Math.PI / 180;
-    const Δφ = (p2.lat - p1.lat) * Math.PI / 180;
-    const Δλ = (p2.lng - p1.lng) * Math.PI / 180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    return R * c;
-  };
-
-  // Format duration
   const formatDuration = (seconds: number): string => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -290,16 +405,14 @@ function RunPageContent() {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Format pace
   const formatPace = (durationSec: number, distKm: number): string => {
     if (distKm === 0) return "--'--\"";
     const paceMinPerKm = (durationSec / 60) / distKm;
     const min = Math.floor(paceMinPerKm);
     const sec = Math.floor((paceMinPerKm - min) * 60);
-    return `${min}'${sec.toString().padStart(2, '0')}"`;
+    return `${min}'${sec.toString().padStart(2, '0')}\"`;
   };
 
-  // Start tracking
   const startTracking = () => {
     if (!navigator.geolocation) {
       toast.error('GPS를 지원하지 않는 브라우저입니다');
@@ -318,8 +431,8 @@ function RunPageContent() {
     pausedAtRef.current = null;
     lastPositionRef.current = null;
     lastRecordedAtRef.current = null;
+    clearRunPath();
 
-    // Watch position
     watchId.current = navigator.geolocation.watchPosition(
       (position) => {
         lastPositionRef.current = position;
@@ -330,15 +443,10 @@ function RunPageContent() {
         toast.error(`GPS 오류: ${err.message}`);
         stopTracking();
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  // Stop tracking
   const stopTracking = () => {
     if (watchId.current) {
       navigator.geolocation.clearWatch(watchId.current);
@@ -368,19 +476,16 @@ function RunPageContent() {
           onSuccess: (data) => {
             const reason = data.reason ? encodeURIComponent(data.reason) : '';
             router.push(
-              `/run/result?courseId=${courseId}` +
-                `&runSessionId=${data.runSessionId}` +
-                `&isCollected=${data.isCollected}` +
-                `&matchRate=${data.matchRate}` +
-                (reason ? `&reason=${reason}` : '')
+              `/run/result?courseId=${courseId}`
+              + `&runSessionId=${data.runSessionId}`
+              + `&isCollected=${data.isCollected}`
+              + `&matchRate=${data.matchRate}`
+              + (reason ? `&reason=${reason}` : '')
             );
           },
           onError: (error) => {
             const reason = encodeURIComponent(error.message);
-            router.push(
-              `/run/result?courseId=${courseId}` +
-                `&isCollected=false&matchRate=0&reason=${reason}`
-            );
+            router.push(`/run/result?courseId=${courseId}&isCollected=false&matchRate=0&reason=${reason}`);
           },
         }
       );
@@ -389,10 +494,7 @@ function RunPageContent() {
 
     if (courseId && pathRef.current.length < 2) {
       const reason = encodeURIComponent('경로 데이터가 부족합니다');
-      router.push(
-        `/run/result?courseId=${courseId}` +
-          `&isCollected=false&matchRate=0&reason=${reason}`
-      );
+      router.push(`/run/result?courseId=${courseId}&isCollected=false&matchRate=0&reason=${reason}`);
       return;
     }
 
@@ -406,16 +508,11 @@ function RunPageContent() {
         },
         {
           onSuccess: (data) => {
-            router.push(
-              `/run/result?runSessionId=${data.runSessionId}` +
-                `&isCollected=false&matchRate=0`
-            );
+            router.push(`/run/result?runSessionId=${data.runSessionId}&isCollected=false&matchRate=0`);
           },
           onError: (error) => {
             const reason = encodeURIComponent(error.message);
-            router.push(
-              `/run/result?isCollected=false&matchRate=0&reason=${reason}`
-            );
+            router.push(`/run/result?isCollected=false&matchRate=0&reason=${reason}`);
           },
         }
       );
@@ -424,9 +521,7 @@ function RunPageContent() {
 
     if (!courseId) {
       const reason = encodeURIComponent('코스 정보가 없습니다');
-      router.push(
-        `/run/result?isCollected=false&matchRate=0&reason=${reason}`
-      );
+      router.push(`/run/result?isCollected=false&matchRate=0&reason=${reason}`);
     }
   };
 
@@ -435,7 +530,6 @@ function RunPageContent() {
       setIsStopDialogOpen(true);
       return;
     }
-
     stopTracking();
   };
 
@@ -458,6 +552,7 @@ function RunPageContent() {
       toast.error('GPS를 지원하지 않는 브라우저입니다');
       return;
     }
+
     setIsPaused(false);
     setIsTracking(true);
 
@@ -471,140 +566,9 @@ function RunPageContent() {
         toast.error(`GPS 오류: ${err.message}`);
         stopTracking();
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
-
-  // Update path line
-  const updatePathLine = (points: GPSPoint[]) => {
-    if (!map.current || points.length < 2) return;
-
-    const coordinates = points.map((p) => [p.lng, p.lat]);
-
-    if (map.current.getSource('run-path')) {
-      (map.current.getSource('run-path') as maplibregl.GeoJSONSource).setData({
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'LineString',
-          coordinates,
-        },
-      });
-    } else {
-      map.current.addSource('run-path', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates,
-          },
-        },
-      });
-
-      map.current.addLayer({
-        id: 'run-path-outline',
-        type: 'line',
-        source: 'run-path',
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 8,
-          'line-opacity': 0.9,
-        },
-      });
-
-      map.current.addLayer({
-        id: 'run-path',
-        type: 'line',
-        source: 'run-path',
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': '#0ea5e9',
-          'line-width': 6,
-          'line-opacity': 0.98,
-        },
-      });
-    }
-  };
-
-  const updateCourseLine = (points: { lat: number; lng: number }[]) => {
-    if (!map.current || points.length < 2) return;
-    const coordinates = points.map((p) => [p.lng, p.lat]);
-
-    if (map.current.getSource('course-path')) {
-      (map.current.getSource('course-path') as maplibregl.GeoJSONSource).setData({
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'LineString',
-          coordinates,
-        },
-      });
-    } else {
-      map.current.addSource('course-path', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates,
-          },
-        },
-      });
-
-      map.current.addLayer({
-        id: 'course-path-outline',
-        type: 'line',
-        source: 'course-path',
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 8,
-          'line-opacity': 0.75,
-        },
-      });
-
-      map.current.addLayer({
-        id: 'course-path',
-        type: 'line',
-        source: 'course-path',
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': '#22c55e',
-          'line-width': 5,
-          'line-opacity': 0.9,
-          'line-dasharray': [1.2, 1.2],
-        },
-      });
-    }
-  };
-
-  useEffect(() => {
-    if (!mapLoadedRef.current || !courseWaypoints.length) return;
-    updateCourseLine(courseWaypoints);
-    if (!isTrackingRef.current && !hasPath && !hasInitialLocationRef.current) {
-      fitMapToCourse(courseWaypoints);
-    }
-  }, [courseWaypoints, hasPath]);
 
   useEffect(() => {
     if (isPaused) {
@@ -649,11 +613,9 @@ function RunPageContent() {
 
   return (
     <div className="rg-page pb-28">
-      {/* Map */}
       <div className="h-screen relative">
         <div ref={mapContainer} className="w-full h-full" />
 
-        {/* Stats Overlay */}
         <div className="absolute top-4 left-4 right-4 rg-soft-panel rg-fade p-4">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
@@ -693,7 +655,6 @@ function RunPageContent() {
         ) : null}
       </div>
 
-      {/* Controls */}
       <div className="rg-safe-bottom fixed bottom-0 left-0 right-0 border-t border-white/70 bg-white/85 p-6 backdrop-blur-xl shadow-[0_-14px_30px_-26px_rgba(15,23,42,0.7)]">
         {!isTracking ? (
           <div className="flex items-center gap-3">

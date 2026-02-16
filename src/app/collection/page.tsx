@@ -5,8 +5,7 @@ import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
@@ -15,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { ChevronLeft, MapPin } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
-import { NAVER_LIKE_MAP_STYLE, applyKoreanMapLabels, applyRoadVisualStyle } from '@/lib/map-style';
+import { loadNaverMapsSdk, type NaverMapLike, type NaverMapPolylineLike, type NaverMapsApi } from '@/lib/naver-map';
 
 const difficultyLabels: Record<Difficulty, string> = {
   EASY: '쉬움',
@@ -44,7 +43,9 @@ export default function CollectionPage() {
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [isRoutePreviewOpen, setIsRoutePreviewOpen] = useState(false);
   const previewMapContainerRef = useRef<HTMLDivElement>(null);
-  const previewMapRef = useRef<maplibregl.Map | null>(null);
+  const naverMapsRef = useRef<NaverMapsApi | null>(null);
+  const previewMapRef = useRef<NaverMapLike | null>(null);
+  const previewPolylinesRef = useRef<NaverMapPolylineLike[]>([]);
 
   type RouteCourse = {
     id: string;
@@ -146,119 +147,92 @@ export default function CollectionPage() {
       return;
     }
 
-    if (!previewMapRef.current) {
-      previewMapRef.current = new maplibregl.Map({
-        container: previewMapContainerRef.current,
-        style: NAVER_LIKE_MAP_STYLE,
-        center: [126.978, 37.5665],
-        zoom: 12,
-      });
-
-      previewMapRef.current.once('load', () => {
-        applyKoreanMapLabels(previewMapRef.current!);
-        applyRoadVisualStyle(previewMapRef.current!);
-      });
-    }
-
-    const map = previewMapRef.current;
+    let isMounted = true;
     const colors = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#ef4444', '#14b8a6'];
 
-    const cleanupLayers = () => {
-      if (!map) return;
-      const style = map.getStyle();
-      const layers = style.layers ?? [];
-
-      layers.forEach((layer) => {
-        if (layer.id.startsWith('preview-route-')) {
-          map.removeLayer(layer.id);
-        }
+    const clearPreviewPolylines = () => {
+      previewPolylinesRef.current.forEach((polyline) => {
+        polyline.setMap(null);
       });
-
-      Object.keys(style.sources).forEach((sourceId) => {
-        if (sourceId.startsWith('preview-route-')) {
-          map.removeSource(sourceId);
-        }
-      });
+      previewPolylinesRef.current = [];
     };
 
-    const renderRoutes = () => {
-      cleanupLayers();
+    const renderRoutes = (sdk: NaverMapsApi, mapInstance: NaverMapLike) => {
+      clearPreviewPolylines();
 
-      const bounds = new maplibregl.LngLatBounds();
+      const bounds = new sdk.LatLngBounds();
       let hasBounds = false;
 
       selectedCourses.forEach((course, index) => {
         const sortedWaypoints = [...course.waypoints].sort((a, b) => a.order - b.order);
-        const coordinates = sortedWaypoints.map((point) => [point.lng, point.lat]) as [number, number][];
-        if (coordinates.length < 2) {
+        const path = sortedWaypoints.map((point) => new sdk.LatLng(point.lat, point.lng));
+        if (path.length < 2) {
           return;
         }
 
-        coordinates.forEach((coord) => {
-          bounds.extend(coord);
+        path.forEach((latLng) => {
+          bounds.extend(latLng);
           hasBounds = true;
         });
 
-        const sourceId = `preview-route-${course.id}`;
         const color = colors[index % colors.length];
-
-        map.addSource(sourceId, {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-              type: 'LineString',
-              coordinates,
-            },
-          },
+        const outline = new sdk.Polyline({
+          map: mapInstance,
+          path,
+          strokeColor: '#ffffff',
+          strokeWeight: 8,
+          strokeOpacity: 0.85,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          clickable: false,
+        });
+        const main = new sdk.Polyline({
+          map: mapInstance,
+          path,
+          strokeColor: color,
+          strokeWeight: 5,
+          strokeOpacity: 0.95,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          clickable: false,
         });
 
-        map.addLayer({
-          id: `${sourceId}-outline`,
-          type: 'line',
-          source: sourceId,
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round',
-          },
-          paint: {
-            'line-color': '#ffffff',
-            'line-width': 8,
-            'line-opacity': 0.85,
-          },
-        });
-
-        map.addLayer({
-          id: `${sourceId}-main`,
-          type: 'line',
-          source: sourceId,
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round',
-          },
-          paint: {
-            'line-color': color,
-            'line-width': 5,
-            'line-opacity': 0.95,
-          },
-        });
+        previewPolylinesRef.current.push(outline, main);
       });
 
       if (hasBounds) {
-        map.fitBounds(bounds, { padding: 40, maxZoom: 15, duration: 300 });
+        mapInstance.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
       }
     };
 
-    if (map.loaded()) {
-      renderRoutes();
-    } else {
-      map.once('load', renderRoutes);
-    }
+    void loadNaverMapsSdk()
+      .then((sdk) => {
+        if (!isMounted || !previewMapContainerRef.current) return;
+
+        naverMapsRef.current = sdk;
+
+        if (!previewMapRef.current) {
+          previewMapRef.current = new sdk.Map(previewMapContainerRef.current, {
+            center: new sdk.LatLng(37.5665, 126.978),
+            zoom: 12,
+            mapTypeControl: false,
+            zoomControl: false,
+          });
+        }
+
+        if (previewMapRef.current) {
+          renderRoutes(sdk, previewMapRef.current);
+        }
+      })
+      .catch(() => {
+        toast.error('지도를 불러오지 못했습니다');
+      });
 
     return () => {
-      if (previewMapRef.current && !isRoutePreviewOpen) {
-        previewMapRef.current.remove();
+      isMounted = false;
+      clearPreviewPolylines();
+      if (!isRoutePreviewOpen) {
+        previewMapRef.current?.destroy();
         previewMapRef.current = null;
       }
     };
@@ -368,9 +342,9 @@ export default function CollectionPage() {
             </div>
 
             {selectedCourseIds.length > 0 && (
-              <div className="flex items-center justify-between rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2">
+              <div className="flex flex-col gap-2 rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-sky-700">{selectedCourseIds.length}개 코스 선택됨</p>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 sm:justify-end">
                   <Button
                     size="sm"
                     variant="outline"
@@ -411,7 +385,7 @@ export default function CollectionPage() {
                 </div>
               </div>
             )}
-            <div className="rg-stagger grid grid-cols-2 gap-4">
+            <div className="rg-stagger grid grid-cols-1 gap-4 sm:grid-cols-2">
               {sortedCourses.length === 0 ? (
                 <div className="col-span-2 rounded-2xl border border-white/70 bg-white/80 py-10 text-center text-sm text-slate-500">
                   {viewType === 'created' ? '아직 제작한 코스가 없습니다' : '태그 조건에 맞는 수집 코스가 없습니다'}
@@ -472,16 +446,16 @@ export default function CollectionPage() {
                       />
                     </div>
                     <CardContent className="p-3 space-y-2">
-                      <div className="font-semibold text-sm line-clamp-1">
+                      <div className="min-w-0 font-semibold text-sm line-clamp-1">
                         {course.title}
                       </div>
-                      <div className="flex items-center justify-between text-xs text-slate-600">
+                      <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
                         {viewType === 'created' ? (
-                          <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />내 제작</span>
+                          <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3 w-3 shrink-0" />내 제작</span>
                         ) : (
-                          <span>{course.count ?? 0}회 수집</span>
+                          <span className="truncate">{course.count ?? 0}회 수집</span>
                         )}
-                        <span>{course.totalDistance.toFixed(1)}km</span>
+                        <span className="shrink-0">{course.totalDistance.toFixed(1)}km</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge className={`${difficultyColors[course.difficulty]} rounded-full text-xs px-2`}

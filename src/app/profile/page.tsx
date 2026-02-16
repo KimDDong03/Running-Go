@@ -3,6 +3,7 @@
 import { type ChangeEvent, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { signOut } from 'next-auth/react';
 import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
@@ -209,6 +210,19 @@ export default function ProfilePage() {
                   <Link href="/login">
                     <Button className="rg-touch rg-press rounded-full">로그인</Button>
                   </Link>
+                </div>
+              )}
+              {!data?.user.isGuest && (
+                <div>
+                  <Button
+                    variant="outline"
+                    className="rg-touch rg-press rounded-full"
+                    onClick={() => {
+                      void signOut({ callbackUrl: '/' });
+                    }}
+                  >
+                    로그아웃
+                  </Button>
                 </div>
               )}
             </CardContent>

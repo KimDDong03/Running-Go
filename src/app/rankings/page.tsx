@@ -113,7 +113,7 @@ export default function RankingsPage() {
                   <Card className="rg-interactive-card rounded-[24px] border border-white/75 bg-white/85 shadow-[0_18px_34px_-24px_rgba(15,23,42,0.58)] overflow-hidden transition-transform hover:-translate-y-0.5">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-3">
-                        <div className="relative h-24 w-32 flex-shrink-0 overflow-hidden rounded-2xl border border-white/80 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.55)]">
+                        <div className="relative h-20 w-24 flex-shrink-0 overflow-hidden rounded-2xl border border-white/80 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.55)] sm:h-24 sm:w-32">
                           <Image
                             src={(() => {
                               const raw = Array.isArray(course.waypoints)
@@ -129,12 +129,12 @@ export default function RankingsPage() {
                             unoptimized
                           />
                         </div>
-                        <div className="flex-1 p-1 pr-2 flex items-center justify-between gap-3">
-                          <div>
-                            <div className="font-semibold text-slate-900">{rankLabel(index)} {course.title}</div>
+                        <div className="flex min-w-0 flex-1 items-center justify-between gap-2 p-1 pr-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold text-slate-900">{rankLabel(index)} {course.title}</div>
                             <div className="mt-1 text-sm text-slate-600">❤️ {course.likeCount}</div>
                           </div>
-                          <div className="rounded-full bg-slate-100/85 px-2.5 py-1 text-xs font-medium text-slate-700">{course.totalDistance.toFixed(1)}km</div>
+                          <div className="shrink-0 rounded-full bg-slate-100/85 px-2.5 py-1 text-xs font-medium text-slate-700">{course.totalDistance.toFixed(1)}km</div>
                         </div>
                       </div>
                     </CardContent>
@@ -152,13 +152,13 @@ export default function RankingsPage() {
             {data?.collectorRankings.length ? (
               data.collectorRankings.map((ranking, index) => (
                   <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="font-medium">
-                        {rankLabel(index)} {ranking.name ?? '익명'}
+                    <CardContent className="p-4 flex items-center justify-between gap-3">
+                      <div className="min-w-0 font-medium">
+                        <span className="truncate align-middle">{rankLabel(index)} {ranking.name ?? '익명'}</span>
                         <span className="ml-2">{getCollectorTier(ranking.collectedCount).icon}</span>
                         <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">탐험가</span>
                       </div>
-                      <div className="text-sm text-slate-500">{ranking.score}개</div>
+                      <div className="shrink-0 text-sm text-slate-500">{ranking.score}개</div>
                     </CardContent>
                   </Card>
               ))
@@ -173,13 +173,13 @@ export default function RankingsPage() {
             {data?.creatorRankings.length ? (
               data.creatorRankings.map((ranking, index) => (
                   <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="font-medium">
-                        {rankLabel(index)} {ranking.name ?? '익명'}
+                    <CardContent className="p-4 flex items-center justify-between gap-3">
+                      <div className="min-w-0 font-medium">
+                        <span className="truncate align-middle">{rankLabel(index)} {ranking.name ?? '익명'}</span>
                         <span className="ml-2">{getCreatorTier(ranking.score).icon}</span>
                         <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">설계자</span>
                       </div>
-                      <div className="text-sm text-slate-500">{ranking.score}❤️</div>
+                      <div className="shrink-0 text-sm text-slate-500">{ranking.score}❤️</div>
                     </CardContent>
                   </Card>
               ))
@@ -195,11 +195,11 @@ export default function RankingsPage() {
               data.courseRankings.map((ranking, index) => (
                 <Link key={ranking.id} href={`/?focusCourseId=${ranking.courseId}`} className="block">
                   <Card className="rg-interactive-card rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">{rankLabel(index)} {ranking.courseTitle}</div>
+                    <CardContent className="p-4 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{rankLabel(index)} {ranking.courseTitle}</div>
                       </div>
-                      <div className="text-sm text-slate-500">{ranking.runCount}회</div>
+                      <div className="shrink-0 text-sm text-slate-500">{ranking.runCount}회</div>
                     </CardContent>
                   </Card>
                 </Link>

@@ -4,8 +4,6 @@ import { use, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
@@ -15,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/ui/error-state';
 import { ChevronLeft, Heart, MapPin, Clock, Trophy, User, Play, Trash2 } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
-import { NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
+import { loadNaverMapsSdk, type NaverMapLike, type NaverMapPolylineLike, type NaverMapsApi } from '@/lib/naver-map';
 
 interface Waypoint {
   lat: number;
@@ -114,7 +112,10 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
   const courseDetail = course as unknown as CourseDetail | null;
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+  const naverMapsRef = useRef<NaverMapsApi | null>(null);
+  const mapRef = useRef<NaverMapLike | null>(null);
+  const outlinePolylineRef = useRef<NaverMapPolylineLike | null>(null);
+  const mainPolylineRef = useRef<NaverMapPolylineLike | null>(null);
   const waypointList = useMemo(() => {
     if (!courseDetail) return [] as Waypoint[];
     const raw = Array.isArray(courseDetail.waypoints)
@@ -128,104 +129,84 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       return;
     }
 
-    mapRef.current = new maplibregl.Map({
-      container: mapContainerRef.current,
-      style: NAVER_LIKE_MAP_STYLE,
-      center: [courseDetail.centerLng, courseDetail.centerLat],
-      zoom: 13,
-    });
+    let isMounted = true;
 
-    mapRef.current.dragPan.disable();
-    mapRef.current.scrollZoom.disable();
-    mapRef.current.boxZoom.disable();
-    mapRef.current.doubleClickZoom.disable();
-    mapRef.current.touchZoomRotate.disable();
-    mapRef.current.keyboard.disable();
+    void loadNaverMapsSdk()
+      .then((sdk) => {
+        if (!isMounted || !mapContainerRef.current) return;
+        naverMapsRef.current = sdk;
+        mapRef.current = new sdk.Map(mapContainerRef.current, {
+          center: new sdk.LatLng(courseDetail.centerLat, courseDetail.centerLng),
+          zoom: 13,
+          mapTypeControl: false,
+          zoomControl: false,
+        });
+      })
+      .catch(() => {
+        toast.error('지도를 불러오지 못했습니다');
+      });
 
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      isMounted = false;
+      outlinePolylineRef.current?.setMap(null);
+      mainPolylineRef.current?.setMap(null);
+      outlinePolylineRef.current = null;
+      mainPolylineRef.current = null;
+      mapRef.current?.destroy();
+      mapRef.current = null;
     };
   }, [courseDetail]);
 
   useEffect(() => {
-    if (!courseDetail || !mapRef.current) {
+    if (!courseDetail || !mapRef.current || !naverMapsRef.current) {
       return;
     }
 
     const map = mapRef.current;
+    const sdk = naverMapsRef.current;
+    const coordinates = waypointList.map((point) => new sdk.LatLng(point.lat, point.lng));
 
-    const renderPath = () => {
-      const coordinates = waypointList.map((point) => [point.lng, point.lat]) as [number, number][];
-      const sourceId = 'course-preview-path';
-
-      if (map.getLayer('course-preview-main')) {
-        map.removeLayer('course-preview-main');
-      }
-      if (map.getLayer('course-preview-outline')) {
-        map.removeLayer('course-preview-outline');
-      }
-      if (map.getSource(sourceId)) {
-        map.removeSource(sourceId);
-      }
-
-      if (coordinates.length >= 2) {
-        map.addSource(sourceId, {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-              type: 'LineString',
-              coordinates,
-            },
-          },
-        });
-
-        map.addLayer({
-          id: 'course-preview-outline',
-          type: 'line',
-          source: sourceId,
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round',
-          },
-          paint: {
-            'line-color': '#ffffff',
-            'line-width': 8,
-            'line-opacity': 0.9,
-          },
-        });
-
-        map.addLayer({
-          id: 'course-preview-main',
-          type: 'line',
-          source: sourceId,
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round',
-          },
-          paint: {
-            'line-color': '#0ea5e9',
-            'line-width': 5,
-            'line-opacity': 0.96,
-          },
-        });
-
-        const bounds = new maplibregl.LngLatBounds();
-        coordinates.forEach((coord) => bounds.extend(coord));
-        map.fitBounds(bounds, { padding: 36, maxZoom: 15, duration: 0 });
+    if (coordinates.length >= 2) {
+      if (outlinePolylineRef.current) {
+        outlinePolylineRef.current.setPath(coordinates);
       } else {
-        map.jumpTo({ center: [courseDetail.centerLng, courseDetail.centerLat], zoom: 13 });
+        outlinePolylineRef.current = new sdk.Polyline({
+          map,
+          path: coordinates,
+          strokeColor: '#ffffff',
+          strokeWeight: 8,
+          strokeOpacity: 0.9,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          clickable: false,
+        });
       }
-    };
 
-    if (map.loaded()) {
-      renderPath();
+      if (mainPolylineRef.current) {
+        mainPolylineRef.current.setPath(coordinates);
+      } else {
+        mainPolylineRef.current = new sdk.Polyline({
+          map,
+          path: coordinates,
+          strokeColor: '#0ea5e9',
+          strokeWeight: 5,
+          strokeOpacity: 0.96,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          clickable: false,
+        });
+      }
+
+      const bounds = new sdk.LatLngBounds();
+      coordinates.forEach((coord) => bounds.extend(coord));
+      map.fitBounds(bounds, { top: 36, right: 36, bottom: 36, left: 36 });
     } else {
-      map.once('load', renderPath);
+      outlinePolylineRef.current?.setMap(null);
+      mainPolylineRef.current?.setMap(null);
+      outlinePolylineRef.current = null;
+      mainPolylineRef.current = null;
+      map.setCenter(new sdk.LatLng(courseDetail.centerLat, courseDetail.centerLng));
+      map.setZoom(13);
     }
   }, [courseDetail, waypointList]);
 
