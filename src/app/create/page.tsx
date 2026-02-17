@@ -1100,7 +1100,7 @@ export default function CreateCoursePage() {
         </Button>
         
         {/* Instructions */}
-          <div className="absolute top-4 left-4 right-4 rg-soft-panel p-4">
+          <div className="pointer-events-none absolute top-4 left-4 right-4 rg-soft-panel p-4">
             <p className="text-sm text-slate-600 text-center">
               {isRouting
                 ? (isEnglish ? 'Calculating walking route...' : '보행 경로를 계산 중입니다')
