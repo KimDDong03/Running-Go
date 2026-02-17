@@ -15,12 +15,12 @@ import {
 import { ChevronLeft, LocateFixed, Pause, Play, Square } from 'lucide-react';
 import { trpc } from '@/components/providers/TRPCProvider';
 import {
-  loadNaverMapsSdk,
-  type NaverMapLike,
-  type NaverMapMarkerLike,
-  type NaverMapPolylineLike,
-  type NaverMapsApi,
-} from '@/lib/naver-map';
+  loadMapSdk,
+  type MapLike,
+  type MapMarkerLike,
+  type MapPolylineLike,
+  type MapSdkApi,
+} from '@/lib/map/sdk';
 import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
 import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
 
@@ -46,8 +46,8 @@ const hasCoord = (value: unknown): value is { coord: { lat: () => number; lng: (
 
 function RunPageContent() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const naverMapsRef = useRef<NaverMapsApi | null>(null);
-  const map = useRef<NaverMapLike | null>(null);
+  const mapSdkRef = useRef<MapSdkApi | null>(null);
+  const map = useRef<MapLike | null>(null);
 
   const [isTracking, setIsTracking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -63,12 +63,12 @@ function RunPageContent() {
   const watchId = useRef<number | null>(null);
   const startTime = useRef<number | null>(null);
   const intervalId = useRef<NodeJS.Timeout | null>(null);
-  const currentMarker = useRef<NaverMapMarkerLike | null>(null);
+  const currentMarker = useRef<MapMarkerLike | null>(null);
   const currentMarkerImageRef = useRef<string | null>(null);
-  const runPathOutlineRef = useRef<NaverMapPolylineLike | null>(null);
-  const runPathMainRef = useRef<NaverMapPolylineLike | null>(null);
-  const coursePathOutlineRef = useRef<NaverMapPolylineLike | null>(null);
-  const coursePathMainRef = useRef<NaverMapPolylineLike | null>(null);
+  const runPathOutlineRef = useRef<MapPolylineLike | null>(null);
+  const runPathMainRef = useRef<MapPolylineLike | null>(null);
+  const coursePathOutlineRef = useRef<MapPolylineLike | null>(null);
+  const coursePathMainRef = useRef<MapPolylineLike | null>(null);
   const mapLoadedRef = useRef(false);
   const isTrackingRef = useRef(false);
   const pathRef = useRef<GPSPoint[]>([]);
@@ -118,13 +118,13 @@ function RunPageContent() {
   };
 
   const toLatLng = (lat: number, lng: number) => {
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     if (!sdk) return null;
     return new sdk.LatLng(lat, lng);
   };
 
   const updateCurrentMarker = (latitude: number, longitude: number) => {
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     const position = toLatLng(latitude, longitude);
     if (!sdk || !mapInstance || !position) return;
@@ -153,7 +153,7 @@ function RunPageContent() {
   };
 
   const fitMapToCourse = (points: { lat: number; lng: number }[]) => {
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!sdk || !mapInstance || points.length < 2) return;
 
@@ -192,7 +192,7 @@ function RunPageContent() {
   };
 
   const updatePathLine = (points: GPSPoint[]) => {
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!sdk || !mapInstance || points.length < 2) return;
 
@@ -231,7 +231,7 @@ function RunPageContent() {
   };
 
   const updateCourseLine = (points: { lat: number; lng: number }[]) => {
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!sdk || !mapInstance || points.length < 2) {
       clearCoursePath();
@@ -279,11 +279,11 @@ function RunPageContent() {
     let dragListener: object | null = null;
     let zoomListener: object | null = null;
 
-    void loadNaverMapsSdk()
+    void loadMapSdk()
       .then((sdk) => {
         if (!isMounted || !mapContainer.current) return;
 
-        naverMapsRef.current = sdk;
+        mapSdkRef.current = sdk;
         map.current = new sdk.Map(mapContainer.current, {
           center: new sdk.LatLng(37.5665, 126.978),
           zoom: 15,
@@ -333,14 +333,14 @@ function RunPageContent() {
 
     return () => {
       isMounted = false;
-      if (naverMapsRef.current && clickListener) {
-        naverMapsRef.current.Event.removeListener(clickListener);
+      if (mapSdkRef.current && clickListener) {
+        mapSdkRef.current.Event.removeListener(clickListener);
       }
-      if (naverMapsRef.current && dragListener) {
-        naverMapsRef.current.Event.removeListener(dragListener);
+      if (mapSdkRef.current && dragListener) {
+        mapSdkRef.current.Event.removeListener(dragListener);
       }
-      if (naverMapsRef.current && zoomListener) {
-        naverMapsRef.current.Event.removeListener(zoomListener);
+      if (mapSdkRef.current && zoomListener) {
+        mapSdkRef.current.Event.removeListener(zoomListener);
       }
       clearRunPath();
       clearCoursePath();
@@ -613,8 +613,8 @@ function RunPageContent() {
 
   return (
     <div className="rg-page pb-28">
-      <div className="h-screen relative">
-        <div ref={mapContainer} className="w-full h-full" />
+      <div className="adsense-excluded-area h-screen relative" data-adsense-excluded="true">
+        <div ref={mapContainer} className="adsense-excluded-area w-full h-full" data-adsense-excluded="true" />
 
         <div className="absolute top-4 left-4 right-4 rg-soft-panel rg-fade p-4">
           <div className="grid grid-cols-3 gap-4 text-center">

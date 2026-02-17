@@ -4,7 +4,7 @@ import { type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEv
 import Image from 'next/image';
 import Link from 'next/link';
 import { trpc } from '@/components/providers/TRPCProvider';
-import { loadNaverMapsSdk, type NaverMapLike, type NaverMapMarkerLike, type NaverMapPolylineLike, type NaverMapsApi } from '@/lib/naver-map';
+import { loadMapSdk, type MapLike, type MapMarkerLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
 import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AdSlot } from '@/app/components/ads/AdSlot';
 import { Heart, LocateFixed, MapPin } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 
@@ -123,13 +124,13 @@ export default function CoursesPage() {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const naverMapsRef = useRef<NaverMapsApi | null>(null);
-  const mapRef = useRef<NaverMapLike | null>(null);
-  const userMarkerRef = useRef<NaverMapMarkerLike | null>(null);
+  const mapSdkRef = useRef<MapSdkApi | null>(null);
+  const mapRef = useRef<MapLike | null>(null);
+  const userMarkerRef = useRef<MapMarkerLike | null>(null);
   const userMarkerImageRef = useRef<string | null>(null);
-  const courseMarkersRef = useRef<NaverMapMarkerLike[]>([]);
-  const selectedOutlinePolylineRef = useRef<NaverMapPolylineLike | null>(null);
-  const selectedMainPolylineRef = useRef<NaverMapPolylineLike | null>(null);
+  const courseMarkersRef = useRef<MapMarkerLike[]>([]);
+  const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
+  const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const panelScrollDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean } | null>(null);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -349,7 +350,7 @@ export default function CoursesPage() {
   }, [listSort, userLocation, viewMode]);
 
   const toLatLng = (lat: number, lng: number) => {
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     if (!sdk) {
       throw new Error('네이버 지도 SDK가 준비되지 않았습니다');
     }
@@ -375,11 +376,11 @@ export default function CoursesPage() {
     let dragListener: object | null = null;
     let idleListener: object | null = null;
 
-    void loadNaverMapsSdk()
+    void loadMapSdk()
       .then((sdk) => {
         if (!isMounted || !mapContainerRef.current) return;
 
-        naverMapsRef.current = sdk;
+        mapSdkRef.current = sdk;
         const mapInstance = new sdk.Map(mapContainerRef.current, {
           center: new sdk.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
           zoom: 13,
@@ -461,11 +462,11 @@ export default function CoursesPage() {
 
     return () => {
       isMounted = false;
-      if (naverMapsRef.current && dragListener) {
-        naverMapsRef.current.Event.removeListener(dragListener);
+      if (mapSdkRef.current && dragListener) {
+        mapSdkRef.current.Event.removeListener(dragListener);
       }
-      if (naverMapsRef.current && idleListener) {
-        naverMapsRef.current.Event.removeListener(idleListener);
+      if (mapSdkRef.current && idleListener) {
+        mapSdkRef.current.Event.removeListener(idleListener);
       }
       if (nearbySearchDebounceRef.current) {
         clearTimeout(nearbySearchDebounceRef.current);
@@ -481,7 +482,7 @@ export default function CoursesPage() {
   }, [viewMode]);
 
   useEffect(() => {
-    if (viewMode !== 'map' || !mapRef.current || !naverMapsRef.current || !userLocation) return;
+    if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current || !userLocation) return;
 
     const center = toLatLng(userLocation.lat, userLocation.lng);
     const markerImage = profileSummary?.user.image ?? null;
@@ -490,13 +491,13 @@ export default function CoursesPage() {
 
     if (!userMarkerRef.current || userMarkerImageRef.current !== markerImage) {
       userMarkerRef.current?.setMap(null);
-      userMarkerRef.current = new naverMapsRef.current.Marker({
+      userMarkerRef.current = new mapSdkRef.current.Marker({
         map: mapRef.current,
         position: center,
         icon: {
           content: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
-          size: new naverMapsRef.current.Size(36, 36),
-          anchor: new naverMapsRef.current.Point(18, 18),
+          size: new mapSdkRef.current.Size(36, 36),
+          anchor: new mapSdkRef.current.Point(18, 18),
         },
       });
       userMarkerImageRef.current = markerImage;
@@ -507,9 +508,9 @@ export default function CoursesPage() {
   }, [profileSummary?.user.image, userLocation, viewMode]);
 
   useEffect(() => {
-    if (viewMode !== 'map' || !mapRef.current || !naverMapsRef.current) return;
+    if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
 
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     const mapInstance = mapRef.current;
     clearCourseMarkers();
 
@@ -546,9 +547,9 @@ export default function CoursesPage() {
   }, [isNearbyCourseMarkerVisible, nearbyCourses, selectedCourseId, viewMode]);
 
   useEffect(() => {
-    if (viewMode !== 'map' || !mapRef.current || !naverMapsRef.current) return;
+    if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
 
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     const mapInstance = mapRef.current;
     if (!selectedCourseId || !selectedCourse || selectedWaypointList.length < 2) {
       clearSelectedPath();
@@ -756,7 +757,11 @@ export default function CoursesPage() {
       <main className="rg-page-main min-h-0 flex-1 overflow-hidden p-4">
         {viewMode === 'map' ? (
           <div className="relative min-h-[260px] h-full overflow-hidden rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] sm:min-h-[320px]">
-            <div ref={mapContainerRef} className="h-full w-full" />
+            <div
+              ref={mapContainerRef}
+              className="adsense-excluded-area h-full w-full"
+              data-adsense-excluded="true"
+            />
 
             {isNearbyCourseMarkerVisible && isNearbyLoading && (
               <div className="absolute top-3 left-3 rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600">
@@ -844,6 +849,7 @@ export default function CoursesPage() {
                     <option value="COURSE_DISTANCE_ASC">코스 짧은순</option>
                     <option value="COURSE_DISTANCE_DESC">코스 긴순</option>
                   </select>
+                  <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
                 </div>
 
                 {locationError && listSort === 'NEAREST' && (
@@ -884,57 +890,61 @@ export default function CoursesPage() {
                   <div className="py-12 text-center text-sm text-slate-500">등록된 코스가 없습니다</div>
                 ) : (
                   <div className="rg-stagger space-y-3 pb-2">
-                    {courses.courses.map((course) => (
-                      <button
-                        key={course.id}
-                        type="button"
-                        className="w-full text-left"
-                        onClick={() => {
-                          setSelectedCourseId((current) => (current === course.id ? null : course.id));
-                        }}
-                      >
-                        <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${selectedCourseId === course.id ? 'rg-selected border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
-                          <CardContent className="p-3">
-                            <div className="flex gap-3">
-                              <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
-                                <Image
-                                  src={(() => {
-                                    const raw = Array.isArray(course.waypoints)
-                                      ? (course.waypoints as { lat: number; lng: number }[])
-                                      : [];
-                                    return getCompactPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
-                                  })()}
-                                  alt={`${course.title} 지도`}
-                                  fill
-                                  sizes="120px"
-                                  quality={70}
-                                  unoptimized
-                                  className="object-cover"
-                                />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <h3 className="truncate text-sm font-semibold text-slate-900">{course.title}</h3>
-                                <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
-                                  <MapPin className="h-3.5 w-3.5" />
-                                  <span>{course.totalDistance.toFixed(1)}km</span>
-                                  <span>•</span>
-                                  <span>{course.estimatedTime}분</span>
+                    {courses.courses.map((course, index) => (
+                      <div key={course.id} className="space-y-3">
+                        <button
+                          type="button"
+                          className="w-full text-left"
+                          onClick={() => {
+                            setSelectedCourseId((current) => (current === course.id ? null : course.id));
+                          }}
+                        >
+                          <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${selectedCourseId === course.id ? 'rg-selected border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
+                            <CardContent className="p-3">
+                              <div className="flex gap-3">
+                                <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+                                  <Image
+                                    src={(() => {
+                                      const raw = Array.isArray(course.waypoints)
+                                        ? (course.waypoints as { lat: number; lng: number }[])
+                                        : [];
+                                      return getCompactPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
+                                    })()}
+                                    alt={`${course.title} 지도`}
+                                    fill
+                                    sizes="120px"
+                                    quality={70}
+                                    unoptimized
+                                    className="object-cover"
+                                  />
                                 </div>
-                                <p className="mt-1 text-xs text-slate-500">내 위치에서 {getDistanceLabel(course.centerLat, course.centerLng)}</p>
-                                <div className="mt-2 flex items-center gap-2">
-                                  <Badge className={`${difficultyColors[course.difficulty]} rounded-full text-[11px]`}>
-                                    {difficultyLabels[course.difficulty]}
-                                  </Badge>
-                                  <div className="flex items-center gap-1 text-xs text-slate-600">
-                                    <Heart className="h-3.5 w-3.5" />
-                                    <span>{course.likeCount}</span>
+                                <div className="min-w-0 flex-1">
+                                  <h3 className="truncate text-sm font-semibold text-slate-900">{course.title}</h3>
+                                  <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    <span>{course.totalDistance.toFixed(1)}km</span>
+                                    <span>•</span>
+                                    <span>{course.estimatedTime}분</span>
+                                  </div>
+                                  <p className="mt-1 text-xs text-slate-500">내 위치에서 {getDistanceLabel(course.centerLat, course.centerLng)}</p>
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <Badge className={`${difficultyColors[course.difficulty]} rounded-full text-[11px]`}>
+                                      {difficultyLabels[course.difficulty]}
+                                    </Badge>
+                                    <div className="flex items-center gap-1 text-xs text-slate-600">
+                                      <Heart className="h-3.5 w-3.5" />
+                                      <span>{course.likeCount}</span>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </button>
+                            </CardContent>
+                          </Card>
+                        </button>
+                        {index === 5 ? (
+                          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 )}

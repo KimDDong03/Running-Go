@@ -2,19 +2,22 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Map, Book, Plus, Trophy, User } from 'lucide-react';
+import { Map as MapIcon, Book, Plus, Trophy, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 const navItems = [
-  { href: '/', label: '홈', icon: Map, match: (path: string) => path === '/' },
-  { href: '/collection', label: '도감', icon: Book, match: (path: string) => path.startsWith('/collection') },
-  { href: '/create', label: '제작', icon: Plus, match: (path: string) => path.startsWith('/create') },
-  { href: '/rankings', label: '랭킹', icon: Trophy, match: (path: string) => path.startsWith('/rankings') },
-  { href: '/profile', label: '프로필', icon: User, match: (path: string) => path.startsWith('/profile') },
+  { href: '/', labelKey: 'nav.home' as MessageKey, icon: MapIcon, match: (path: string) => path === '/' },
+  { href: '/collection', labelKey: 'nav.collection' as MessageKey, icon: Book, match: (path: string) => path.startsWith('/collection') },
+  { href: '/create', labelKey: 'nav.create' as MessageKey, icon: Plus, match: (path: string) => path.startsWith('/create') },
+  { href: '/rankings', labelKey: 'nav.rankings' as MessageKey, icon: Trophy, match: (path: string) => path.startsWith('/rankings') },
+  { href: '/profile', labelKey: 'nav.profile' as MessageKey, icon: User, match: (path: string) => path.startsWith('/profile') },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
+  const { t } = useLocale();
 
   if (pathname.startsWith('/run')) {
     return null;
@@ -47,6 +50,7 @@ export function BottomNav() {
           <Link
             key={item.href}
             href={item.href}
+            aria-label={t(item.labelKey)}
             className={cn(
               'rg-touch-icon rg-press group relative flex h-12 min-w-[58px] items-center justify-center rounded-2xl px-2 text-slate-600 transition-all duration-300',
               isActive && !isCenter && 'bg-[linear-gradient(135deg,#e0f2fe_0%,#dbeafe_100%)] text-sky-800 shadow-[0_12px_24px_-18px_rgba(2,132,199,0.7)]',
@@ -65,7 +69,7 @@ export function BottomNav() {
             <Icon className={cn('relative h-5 w-5 transition-transform duration-300 group-hover:scale-110', !isCenter && isActive && 'scale-110')} />
             {!isCenter && (
               <span className={cn('relative mt-5 text-[11px] font-semibold tracking-tight', isActive ? 'text-sky-800' : 'text-slate-600')}>
-                {item.label}
+                {t(item.labelKey)}
               </span>
             )}
           </Link>

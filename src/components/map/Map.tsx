@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { applyKoreanMapLabels, applyRoadVisualStyle, NAVER_LIKE_MAP_STYLE } from '@/lib/map-style';
+import { applyKoreanMapLabels, applyRoadVisualStyle, DEFAULT_MAP_STYLE } from '@/lib/map-style';
 
 interface MapProps {
   className?: string;
@@ -22,7 +22,7 @@ export function Map({ className, onMapLoad, center = [126.978, 37.5665], zoom = 
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: NAVER_LIKE_MAP_STYLE,
+      style: DEFAULT_MAP_STYLE,
       center: center,
       zoom: zoom,
     });

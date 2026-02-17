@@ -9,6 +9,7 @@ import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ErrorState } from '@/components/ui/error-state';
+import { AdSlot } from '@/app/components/ads/AdSlot';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
 import { ChevronLeft, User } from 'lucide-react';
 
@@ -266,6 +267,10 @@ export default function ProfilePage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {!isError && (
+          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
         )}
 
         {!isError && (

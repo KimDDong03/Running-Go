@@ -8,13 +8,14 @@ import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
+import { AdSlot } from '@/app/components/ads/AdSlot';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ChevronLeft, MapPin } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
-import { loadNaverMapsSdk, type NaverMapLike, type NaverMapPolylineLike, type NaverMapsApi } from '@/lib/naver-map';
+import { loadMapSdk, type MapLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
 
 const difficultyLabels: Record<Difficulty, string> = {
   EASY: '쉬움',
@@ -43,9 +44,9 @@ export default function CollectionPage() {
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [isRoutePreviewOpen, setIsRoutePreviewOpen] = useState(false);
   const previewMapContainerRef = useRef<HTMLDivElement>(null);
-  const naverMapsRef = useRef<NaverMapsApi | null>(null);
-  const previewMapRef = useRef<NaverMapLike | null>(null);
-  const previewPolylinesRef = useRef<NaverMapPolylineLike[]>([]);
+  const mapSdkRef = useRef<MapSdkApi | null>(null);
+  const previewMapRef = useRef<MapLike | null>(null);
+  const previewPolylinesRef = useRef<MapPolylineLike[]>([]);
 
   type RouteCourse = {
     id: string;
@@ -157,7 +158,7 @@ export default function CollectionPage() {
       previewPolylinesRef.current = [];
     };
 
-    const renderRoutes = (sdk: NaverMapsApi, mapInstance: NaverMapLike) => {
+    const renderRoutes = (sdk: MapSdkApi, mapInstance: MapLike) => {
       clearPreviewPolylines();
 
       const bounds = new sdk.LatLngBounds();
@@ -205,11 +206,11 @@ export default function CollectionPage() {
       }
     };
 
-    void loadNaverMapsSdk()
+    void loadMapSdk()
       .then((sdk) => {
         if (!isMounted || !previewMapContainerRef.current) return;
 
-        naverMapsRef.current = sdk;
+        mapSdkRef.current = sdk;
 
         if (!previewMapRef.current) {
           previewMapRef.current = new sdk.Map(previewMapContainerRef.current, {
@@ -340,6 +341,8 @@ export default function CollectionPage() {
                 ))}
               </select>
             </div>
+
+            <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
 
             {selectedCourseIds.length > 0 && (
               <div className="flex flex-col gap-2 rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">

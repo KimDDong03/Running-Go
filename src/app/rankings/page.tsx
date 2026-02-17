@@ -7,6 +7,7 @@ import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
+import { AdSlot } from '@/app/components/ads/AdSlot';
 import { ChevronLeft } from 'lucide-react';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
@@ -95,6 +96,8 @@ export default function RankingsPage() {
             </Button>
           ))}
         </div>
+
+        <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
 
         {isError && (
           <ErrorState

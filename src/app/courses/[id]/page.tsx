@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/ui/error-state';
 import { ChevronLeft, Heart, MapPin, Clock, Trophy, User, Play, Trash2 } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
-import { loadNaverMapsSdk, type NaverMapLike, type NaverMapPolylineLike, type NaverMapsApi } from '@/lib/naver-map';
+import { loadMapSdk, type MapLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
 
 interface Waypoint {
   lat: number;
@@ -112,10 +112,10 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
   const courseDetail = course as unknown as CourseDetail | null;
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const naverMapsRef = useRef<NaverMapsApi | null>(null);
-  const mapRef = useRef<NaverMapLike | null>(null);
-  const outlinePolylineRef = useRef<NaverMapPolylineLike | null>(null);
-  const mainPolylineRef = useRef<NaverMapPolylineLike | null>(null);
+  const mapSdkRef = useRef<MapSdkApi | null>(null);
+  const mapRef = useRef<MapLike | null>(null);
+  const outlinePolylineRef = useRef<MapPolylineLike | null>(null);
+  const mainPolylineRef = useRef<MapPolylineLike | null>(null);
   const waypointList = useMemo(() => {
     if (!courseDetail) return [] as Waypoint[];
     const raw = Array.isArray(courseDetail.waypoints)
@@ -131,10 +131,10 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
     let isMounted = true;
 
-    void loadNaverMapsSdk()
+    void loadMapSdk()
       .then((sdk) => {
         if (!isMounted || !mapContainerRef.current) return;
-        naverMapsRef.current = sdk;
+        mapSdkRef.current = sdk;
         mapRef.current = new sdk.Map(mapContainerRef.current, {
           center: new sdk.LatLng(courseDetail.centerLat, courseDetail.centerLng),
           zoom: 13,
@@ -158,12 +158,12 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   }, [courseDetail]);
 
   useEffect(() => {
-    if (!courseDetail || !mapRef.current || !naverMapsRef.current) {
+    if (!courseDetail || !mapRef.current || !mapSdkRef.current) {
       return;
     }
 
     const map = mapRef.current;
-    const sdk = naverMapsRef.current;
+    const sdk = mapSdkRef.current;
     const coordinates = waypointList.map((point) => new sdk.LatLng(point.lat, point.lng));
 
     if (coordinates.length >= 2) {

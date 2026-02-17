@@ -1,6 +1,6 @@
 import type { Map } from 'maplibre-gl';
 
-export const NAVER_LIKE_MAP_STYLE = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
+export const DEFAULT_MAP_STYLE = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 
 export const applyKoreanMapLabels = (_map: Map) => {
   const map = _map;

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { AdSlot } from '@/app/components/ads/AdSlot';
 import { trpc } from '@/components/providers/TRPCProvider';
 
 function RunResultPageContent() {
@@ -78,6 +79,7 @@ function RunResultPageContent() {
               <Button size="lg" className="w-full rounded-2xl">로그인</Button>
             </Link>
           )}
+          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
           <div className="flex flex-col gap-2">
             {isCollected && (
                 <Button
