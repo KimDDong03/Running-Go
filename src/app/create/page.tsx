@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ChevronLeft, LocateFixed, RotateCcw, Undo2 } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronUp, LocateFixed, RotateCcw, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { loadMapSdk, type MapLike, type MapMarkerLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
@@ -54,6 +54,7 @@ export default function CreateCoursePage() {
   const [inputMode, setInputMode] = useState<'click' | 'draw'>('click');
   const [isDrawing, setIsDrawing] = useState(false);
   const [isMarkerHelpVisible, setIsMarkerHelpVisible] = useState(false);
+  const [isPanelExpanded, setIsPanelExpanded] = useState(true);
 
   const waypointMarkersRef = useRef<{ marker: MapMarkerLike; dragStartListener: object | null; dragEndListener: object | null }[]>([]);
   const mapClickListenerRef = useRef<object | null>(null);
@@ -112,6 +113,21 @@ export default function CreateCoursePage() {
   useEffect(() => {
     isDrawingRef.current = isDrawing;
   }, [isDrawing]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (window.innerWidth < 768) {
+      setIsPanelExpanded(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (inputMode === 'draw') {
+      setIsPanelExpanded(false);
+    }
+  }, [inputMode]);
 
   const dismissMarkerHelp = useCallback(() => {
     setIsMarkerHelpVisible(false);
@@ -1118,7 +1134,25 @@ export default function CreateCoursePage() {
 
       {/* Bottom Panel */}
       <Card className="m-4 rounded-3xl shadow-xl">
-        <CardContent className="p-6 space-y-4">
+        <CardContent className={`${isPanelExpanded ? 'p-6' : 'p-4'} space-y-4`}>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-slate-500">
+              {isEnglish ? 'Controls' : '컨트롤'}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 rounded-full px-2 text-xs text-slate-600"
+              onClick={() => setIsPanelExpanded((prev) => !prev)}
+            >
+              {isPanelExpanded
+                ? (isEnglish ? 'Collapse' : '접기')
+                : (isEnglish ? 'Expand' : '펼치기')}
+              {isPanelExpanded ? <ChevronDown className="ml-1 h-3.5 w-3.5" /> : <ChevronUp className="ml-1 h-3.5 w-3.5" />}
+            </Button>
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
@@ -1169,46 +1203,59 @@ export default function CreateCoursePage() {
             </div>
           )}
 
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="text-sm text-slate-600">Waypoint</p>
-              <p className="text-2xl font-bold text-primary">
-                {waypoints.length}<span className="text-sm text-slate-400">/{MAX_WAYPOINT_COUNT}</span>
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-slate-600">{isEnglish ? 'Estimated Distance' : '예상 거리'}</p>
-              <p className="text-2xl font-bold text-primary">
-                {totalDistance.toFixed(2)}<span className="text-sm text-slate-400">km</span>
-              </p>
-            </div>
-          </div>
+          {isPanelExpanded && (
+            <>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm text-slate-600">Waypoint</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {waypoints.length}<span className="text-sm text-slate-400">/{MAX_WAYPOINT_COUNT}</span>
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-slate-600">{isEnglish ? 'Estimated Distance' : '예상 거리'}</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {totalDistance.toFixed(2)}<span className="text-sm text-slate-400">km</span>
+                  </p>
+                </div>
+              </div>
 
-          {waypoints.length < 5 && (
-            <p className="text-sm text-orange-500 text-center">
-              {isEnglish ? 'At least 5 waypoints are required.' : '최소 5개의 waypoint가 필요합니다'}
-            </p>
+              {waypoints.length < 5 && (
+                <p className="text-sm text-orange-500 text-center">
+                  {isEnglish ? 'At least 5 waypoints are required.' : '최소 5개의 waypoint가 필요합니다'}
+                </p>
+              )}
+
+              <Button
+                size="lg"
+                className="rg-touch w-full h-14 text-lg rounded-2xl"
+                disabled={!isValid}
+                onClick={() => {
+                  const routeCoordinates = routeCoordinatesRef.current;
+                  const denseWaypoints = routeCoordinates.length >= 2
+                    ? buildDenseWaypoints(routeCoordinates)
+                    : waypoints;
+                  const payload = {
+                    waypoints: denseWaypoints.length ? denseWaypoints : waypoints,
+                    totalDistance,
+                  };
+                  sessionStorage.setItem('courseDraft', JSON.stringify(payload));
+                  router.push('/create/details');
+                }}
+              >
+                {isEnglish ? 'Next Step →' : '다음 단계로 →'}
+              </Button>
+            </>
           )}
 
-          <Button
-            size="lg"
-            className="rg-touch w-full h-14 text-lg rounded-2xl"
-            disabled={!isValid}
-            onClick={() => {
-              const routeCoordinates = routeCoordinatesRef.current;
-              const denseWaypoints = routeCoordinates.length >= 2
-                ? buildDenseWaypoints(routeCoordinates)
-                : waypoints;
-              const payload = {
-                waypoints: denseWaypoints.length ? denseWaypoints : waypoints,
-                totalDistance,
-              };
-              sessionStorage.setItem('courseDraft', JSON.stringify(payload));
-              router.push('/create/details');
-            }}
-          >
-            {isEnglish ? 'Next Step →' : '다음 단계로 →'}
-          </Button>
+          {!isPanelExpanded && (
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-sm text-slate-700">
+              <span>
+                Waypoint {waypoints.length}/{MAX_WAYPOINT_COUNT}
+              </span>
+              <span>{totalDistance.toFixed(2)}km</span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
