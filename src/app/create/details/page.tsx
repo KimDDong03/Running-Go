@@ -210,6 +210,11 @@ export default function CreateCourseDetailsPage() {
             <div>{isEnglish ? 'Waypoints' : '웨이포인트'}: {draft.waypoints.length}{isEnglish ? '' : '개'}</div>
             <div>{isEnglish ? 'Estimated Distance' : '예상 거리'}: {draft.totalDistance.toFixed(2)}km</div>
             <div>{isEnglish ? 'Estimated Time' : '예상 시간'}: {estimatedTime}{isEnglish ? ' min' : '분'}</div>
+            <div className="rounded-2xl border border-sky-200/70 bg-sky-50/70 px-3 py-2 text-xs text-sky-700">
+              {isEnglish
+                ? 'Saved courses stay private first. After you run this course once, it is published for other users.'
+                : '저장한 코스는 먼저 비공개로 보관됩니다. 이 코스를 한 번 달리면 다른 사용자에게 공개 등록됩니다.'}
+            </div>
           </CardContent>
         </Card>
 
