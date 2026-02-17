@@ -31,6 +31,7 @@ interface Waypoint {
 }
 
 const MAX_WAYPOINT_COUNT = 30;
+const MAX_PERSIST_WAYPOINT_COUNT = 220;
 const CREATE_MARKER_HELP_STORAGE_KEY = 'running-go:create-marker-help:v1';
 const DRAW_POINT_SAMPLE_COUNT = 16;
 const DRAW_POINT_MIN_DISTANCE_M = 12;
@@ -302,6 +303,29 @@ export default function CreateCoursePage() {
     }
 
     const targetCount = Math.min(MAX_WAYPOINT_COUNT, Math.max(5, Math.floor(total / 45) + 1));
+    const sampled = sampleRoutePoints(coordinates, targetCount);
+    return sampled.map((point, index) => ({
+      lat: point.lat,
+      lng: point.lng,
+      order: index,
+    }));
+  }, [distanceMeters, sampleRoutePoints]);
+
+  const buildPersistWaypoints = useCallback((coordinates: [number, number][]) => {
+    if (coordinates.length === 0) {
+      return [] as Waypoint[];
+    }
+
+    const distances: number[] = [0];
+    let total = 0;
+    for (let i = 1; i < coordinates.length; i++) {
+      const prev = { lat: coordinates[i - 1][1], lng: coordinates[i - 1][0] };
+      const next = { lat: coordinates[i][1], lng: coordinates[i][0] };
+      total += distanceMeters(prev, next);
+      distances.push(total);
+    }
+
+    const targetCount = Math.min(MAX_PERSIST_WAYPOINT_COUNT, Math.max(8, Math.floor(total / 18) + 1));
     const sampled = sampleRoutePoints(coordinates, targetCount);
     return sampled.map((point, index) => ({
       lat: point.lat,
@@ -1028,11 +1052,11 @@ export default function CreateCoursePage() {
 
   const proceedToDetails = useCallback(() => {
     const routeCoordinates = routeCoordinatesRef.current;
-    const denseWaypoints = routeCoordinates.length >= 2
-      ? buildDenseWaypoints(routeCoordinates)
+    const persistedWaypoints = routeCoordinates.length >= 2
+      ? buildPersistWaypoints(routeCoordinates)
       : waypoints;
     const payload = {
-      waypoints: denseWaypoints.length ? denseWaypoints : waypoints,
+      waypoints: persistedWaypoints.length ? persistedWaypoints : waypoints,
       totalDistance,
     };
     sessionStorage.setItem('courseDraft', JSON.stringify(payload));
@@ -1042,7 +1066,7 @@ export default function CreateCoursePage() {
       input_mode: inputMode,
     });
     router.push('/create/details');
-  }, [buildDenseWaypoints, inputMode, router, totalDistance, waypoints]);
+  }, [buildPersistWaypoints, inputMode, router, totalDistance, waypoints]);
 
   if (sessionStatus === 'loading') {
     return (
