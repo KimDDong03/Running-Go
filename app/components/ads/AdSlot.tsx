@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 declare global {
   interface Window {
@@ -15,6 +15,10 @@ type AdSlotProps = {
 };
 
 const hasGrantedConsent = () => {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
   const cookie = document.cookie
     .split(';')
     .map((part) => part.trim())
@@ -36,12 +40,17 @@ export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
   const initializedRef = useRef(false);
   const clientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
   const effectiveSlot = slotId ?? process.env.NEXT_PUBLIC_ADSENSE_SLOT_INLINE;
+  const [hasConsent, setHasConsent] = useState(false);
+
+  useEffect(() => {
+    setHasConsent(hasGrantedConsent());
+  }, []);
 
   useEffect(() => {
     if (!clientId || !effectiveSlot) {
       return;
     }
-    if (!hasGrantedConsent()) {
+    if (!hasConsent) {
       return;
     }
     if (initializedRef.current) {
@@ -56,9 +65,9 @@ export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
     } catch {
       initializedRef.current = false;
     }
-  }, [clientId, effectiveSlot]);
+  }, [clientId, effectiveSlot, hasConsent]);
 
-  if (!clientId || !effectiveSlot || !hasGrantedConsent()) {
+  if (!clientId || !effectiveSlot || !hasConsent) {
     return null;
   }
 

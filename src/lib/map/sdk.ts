@@ -234,30 +234,141 @@ type AdapterListener = {
 
 const toLatLngLike = (latLng: MapLatLng): LngLatLike => [latLng.lng(), latLng.lat()];
 
-const createMapboxRasterStyle = (mapboxToken: string) => ({
-  version: 8 as const,
-  sources: {
-    'mapbox-raster-tiles': {
-      type: 'raster' as const,
-      tiles: [
-        `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}?access_token=${mapboxToken}`,
-      ],
-      tileSize: 256,
-      attribution: '© Mapbox © OpenStreetMap',
-    },
-  },
-  layers: [
-    {
-      id: 'mapbox-raster-layer',
-      type: 'raster' as const,
-      source: 'mapbox-raster-tiles',
-      minzoom: 0,
-      maxzoom: 22,
-    },
-  ],
-});
+const MAPBOX_STYLE_ID = 'mapbox/streets-v12';
 
-const createMapSdk = (mapboxToken: string): MapSdkApi => {
+const resolveMapLocale = () => {
+  if (typeof document !== 'undefined') {
+    const htmlLang = document.documentElement.lang?.toLowerCase();
+    if (htmlLang.startsWith('ko')) {
+      return 'ko';
+    }
+    if (htmlLang.startsWith('en')) {
+      return 'en';
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    const localeCookie = document.cookie
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('rg-locale='));
+    const localeValue = localeCookie?.split('=')[1];
+    if (localeValue === 'ko' || localeValue === 'en') {
+      return localeValue;
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('ko')) {
+    return 'ko';
+  }
+
+  return 'en';
+};
+
+const buildLocalizedTextField = (locale: 'ko' | 'en') => {
+  if (locale === 'ko') {
+    return ['coalesce', ['get', 'name_ko'], ['get', 'name'], ['get', 'name_en']];
+  }
+  return ['coalesce', ['get', 'name_en'], ['get', 'name'], ['get', 'name_ko']];
+};
+
+const applyMapLabelLanguage = (map: maplibregl.Map, locale: 'ko' | 'en') => {
+  const style = map.getStyle();
+  const layers = style?.layers;
+  if (!Array.isArray(layers)) {
+    return;
+  }
+
+  const textField = buildLocalizedTextField(locale);
+  layers.forEach((layer) => {
+    if (layer.type !== 'symbol') {
+      return;
+    }
+
+    const layout = (layer as { layout?: Record<string, unknown> }).layout;
+    if (!layout || !('text-field' in layout)) {
+      return;
+    }
+
+    try {
+      map.setLayoutProperty(layer.id, 'text-field', textField);
+    } catch {
+      return;
+    }
+  });
+};
+
+const toMapboxSpriteUrl = (mapboxUrl: string, mapboxToken: string) => {
+  const path = mapboxUrl.replace('mapbox://sprites/', '');
+  return `https://api.mapbox.com/styles/v1/${path}/sprite?access_token=${mapboxToken}`;
+};
+
+const toMapboxGlyphUrl = (mapboxUrl: string, mapboxToken: string) => {
+  const path = mapboxUrl.replace('mapbox://fonts/', '');
+  return `https://api.mapbox.com/fonts/v1/${path}?access_token=${mapboxToken}`;
+};
+
+const toMapboxTileJsonUrl = (mapboxUrl: string, mapboxToken: string) => {
+  const path = mapboxUrl.replace('mapbox://', '');
+  return `https://api.mapbox.com/v4/${path}.json?secure&access_token=${mapboxToken}`;
+};
+
+const deepClone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const stripNameFields = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripNameFields(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const next: Record<string, unknown> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, fieldValue]) => {
+    if (key === 'name') {
+      return;
+    }
+    next[key] = stripNameFields(fieldValue);
+  });
+  return next;
+};
+
+const sanitizeMapboxStyle = (style: Record<string, unknown>, mapboxToken: string) => {
+  const next = stripNameFields(deepClone(style)) as Record<string, unknown>;
+
+  if (typeof next.sprite === 'string' && next.sprite.startsWith('mapbox://sprites/')) {
+    next.sprite = toMapboxSpriteUrl(next.sprite, mapboxToken);
+  }
+
+  if (typeof next.glyphs === 'string' && next.glyphs.startsWith('mapbox://fonts/')) {
+    next.glyphs = toMapboxGlyphUrl(next.glyphs, mapboxToken);
+  }
+
+  const sources = next.sources as Record<string, Record<string, unknown>> | undefined;
+  if (sources && typeof sources === 'object') {
+    Object.values(sources).forEach((source) => {
+      if (typeof source.url === 'string' && source.url.startsWith('mapbox://')) {
+        source.url = toMapboxTileJsonUrl(source.url, mapboxToken);
+      }
+    });
+  }
+
+  return next;
+};
+
+const fetchMapboxStyle = async (mapboxToken: string) => {
+  const styleUrl = `https://api.mapbox.com/styles/v1/${MAPBOX_STYLE_ID}?access_token=${mapboxToken}`;
+  const response = await fetch(styleUrl, { cache: 'force-cache' });
+  if (!response.ok) {
+    throw new Error('Mapbox style request failed');
+  }
+
+  const style = await response.json() as Record<string, unknown>;
+  return sanitizeMapboxStyle(style, mapboxToken);
+};
+
+const createMapSdk = (preparedStyle: Record<string, unknown>): MapSdkApi => {
   const Event: MapEventApi = {
     addListener(target: object, eventName: string, handler: (...args: unknown[]) => void) {
       const resolvedEvent = mapEventAlias[eventName] ?? eventName;
@@ -295,12 +406,20 @@ const createMapSdk = (mapboxToken: string): MapSdkApi => {
     LatLngBounds: AdapterBounds,
     Map: class extends AdapterMap {
       constructor(container: HTMLElement, options: { center: MapLatLng; zoom: number }) {
+        const locale = resolveMapLocale();
         const map = new maplibregl.Map({
           container,
-          style: createMapboxRasterStyle(mapboxToken),
+          style: deepClone(preparedStyle) as unknown as maplibregl.StyleSpecification,
           center: toLatLngLike(options.center),
           zoom: options.zoom,
         });
+
+        const syncLanguage = () => {
+          applyMapLabelLanguage(map, locale);
+        };
+
+        map.on('load', syncLanguage);
+        map.on('styledata', syncLanguage);
         super(map);
       }
     },
@@ -354,7 +473,13 @@ export const loadMapSdk = (): Promise<MapSdkApi> => {
     }
 
     ensureMapLibreStyle();
-    resolve(createMapSdk(token));
+    void fetchMapboxStyle(token)
+      .then((style) => {
+        resolve(createMapSdk(style));
+      })
+      .catch((error) => {
+        reject(error);
+      });
   });
 
   return sdkLoaderPromise;

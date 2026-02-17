@@ -38,6 +38,7 @@ const DEFAULT_CENTER = {
 
 const INITIAL_PANEL_HEIGHT = 180;
 const ONBOARDING_STORAGE_KEY = 'running-go:onboarding:v1';
+const LAST_LOCATION_STORAGE_KEY = 'running-go:last-location:v1';
 
 const ONBOARDING_STEPS_KO = [
   {
@@ -125,6 +126,26 @@ const calculateDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: num
       * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadius * c;
+};
+
+const readStoredLocation = () => {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(LAST_LOCATION_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { lat?: number; lng?: number };
+    if (typeof parsed.lat !== 'number' || typeof parsed.lng !== 'number') {
+      return null;
+    }
+    return { lat: parsed.lat, lng: parsed.lng };
+  } catch {
+    return null;
+  }
+};
+
+const storeLocation = (location: { lat: number; lng: number }) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(LAST_LOCATION_STORAGE_KEY, JSON.stringify(location));
 };
 
 export default function CoursesPage() {
@@ -361,12 +382,20 @@ export default function CoursesPage() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLocationError(null);
-        setUserLocation({
+        const nextLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-        });
+        };
+        setUserLocation(nextLocation);
+        storeLocation(nextLocation);
       },
       () => {
+        const storedLocation = readStoredLocation();
+        if (storedLocation) {
+          setLocationError(isEnglish ? 'Unable to get current location. Showing last known location.' : '현재 위치를 가져올 수 없어 마지막 위치를 표시합니다');
+          setUserLocation(storedLocation);
+          return;
+        }
         setLocationError(isEnglish ? 'Unable to get current location. Showing default location.' : '현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
         setUserLocation(DEFAULT_CENTER);
       },
@@ -410,14 +439,35 @@ export default function CoursesPage() {
         if (!isMounted || !mapContainerRef.current) return;
 
         mapSdkRef.current = sdk;
+        const storedLocation = readStoredLocation();
+        const initialCenter = userLocation ?? storedLocation ?? DEFAULT_CENTER;
+        const initialUserLocation = userLocation ?? storedLocation;
+        if (!userLocation && storedLocation) {
+          setUserLocation(storedLocation);
+        }
         const mapInstance = new sdk.Map(mapContainerRef.current, {
-          center: new sdk.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
+          center: new sdk.LatLng(initialCenter.lat, initialCenter.lng),
           zoom: 13,
           mapTypeControl: false,
           zoomControl: false,
         });
 
         mapRef.current = mapInstance;
+
+        if (initialUserLocation) {
+          const markerImage = profileSummary?.user.image ?? null;
+          userMarkerRef.current?.setMap(null);
+          userMarkerRef.current = new sdk.Marker({
+            map: mapInstance,
+            position: new sdk.LatLng(initialUserLocation.lat, initialUserLocation.lng),
+            icon: {
+              content: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
+              size: new sdk.Size(36, 36),
+              anchor: new sdk.Point(18, 18),
+            },
+          });
+          userMarkerImageRef.current = markerImage;
+        }
 
         const syncNearbySearchWithViewport = (force = false) => {
           const center = mapInstance.getCenter();
@@ -664,7 +714,9 @@ export default function CoursesPage() {
 
     const moveMap = (lat: number, lng: number) => {
       setLocationError(null);
-      setUserLocation({ lat, lng });
+      const nextLocation = { lat, lng };
+      setUserLocation(nextLocation);
+      storeLocation(nextLocation);
       mapInstance.setCenter(toLatLng(lat, lng));
       mapInstance.setZoom(14);
       collapsePanelToMin();
