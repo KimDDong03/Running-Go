@@ -30,6 +30,7 @@ interface Waypoint {
 }
 
 const MAX_WAYPOINT_COUNT = 30;
+const CREATE_MARKER_HELP_STORAGE_KEY = 'running-go:create-marker-help:v1';
 
 const hasCoord = (value: unknown): value is { coord: { lat: () => number; lng: () => number } } => {
   if (!value || typeof value !== 'object') return false;
@@ -52,6 +53,7 @@ export default function CreateCoursePage() {
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
   const [inputMode, setInputMode] = useState<'click' | 'draw'>('click');
   const [isDrawing, setIsDrawing] = useState(false);
+  const [isMarkerHelpVisible, setIsMarkerHelpVisible] = useState(false);
 
   const waypointMarkersRef = useRef<{ marker: MapMarkerLike; dragStartListener: object | null; dragEndListener: object | null }[]>([]);
   const mapClickListenerRef = useRef<object | null>(null);
@@ -110,6 +112,21 @@ export default function CreateCoursePage() {
   useEffect(() => {
     isDrawingRef.current = isDrawing;
   }, [isDrawing]);
+
+  const dismissMarkerHelp = useCallback(() => {
+    setIsMarkerHelpVisible(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(CREATE_MARKER_HELP_STORAGE_KEY, '1');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const hasSeenHelp = window.localStorage.getItem(CREATE_MARKER_HELP_STORAGE_KEY) === '1';
+    setIsMarkerHelpVisible(!hasSeenHelp);
+  }, []);
 
   const showDirectionsUnavailableWarning = useCallback((message?: string) => {
     const now = Date.now();
@@ -453,6 +470,8 @@ export default function CreateCoursePage() {
         event.preventDefault();
         event.stopPropagation();
 
+        dismissMarkerHelp();
+
         if (suppressMarkerClickRef.current) {
           suppressMarkerClickRef.current = false;
           return;
@@ -537,7 +556,7 @@ export default function CreateCoursePage() {
 
       waypointMarkersRef.current.push({ marker, dragStartListener, dragEndListener });
     });
-  }, [clearWaypointMarkers, distanceMeters, fetchMatchedRoute, isEnglish, showDirectionsUnavailableWarning, updateRouteLine]);
+  }, [clearWaypointMarkers, dismissMarkerHelp, distanceMeters, fetchMatchedRoute, isEnglish, showDirectionsUnavailableWarning, updateRouteLine]);
 
   const applyDrawRoute = useCallback(async () => {
     if (isRoutingRef.current) {
@@ -1076,6 +1095,25 @@ export default function CreateCoursePage() {
                   : (isEnglish ? 'Tap map to add points or apply a preset.' : '지도를 터치하거나 프리셋을 적용하세요')}
             </p>
           </div>
+
+          {isMarkerHelpVisible && waypoints.length > 0 && (
+            <div className="absolute top-20 left-4 right-4 rounded-2xl border border-amber-200/80 bg-amber-50/95 px-4 py-3 text-xs text-amber-900 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <p className="leading-5">
+                  {isEnglish
+                    ? 'Tip: tap any marker to remove it and rebuild the route.'
+                    : '팁: 마커를 탭하면 해당 지점을 삭제하고 경로를 다시 계산합니다.'}
+                </p>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                  onClick={dismissMarkerHelp}
+                >
+                  {isEnglish ? 'Got it' : '알겠어요'}
+                </button>
+              </div>
+            </div>
+          )}
       </div>
 
       {/* Bottom Panel */}
