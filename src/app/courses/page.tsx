@@ -922,10 +922,6 @@ export default function CoursesPage() {
                 onPointerDownCapture={(event) => {
                   event.stopPropagation();
                 }}
-                onTouchStart={onPanelContentTouchStart}
-                onTouchMove={onPanelContentTouchMove}
-                onTouchEnd={onPanelContentTouchEnd}
-                onTouchCancel={onPanelContentTouchEnd}
               >
                 <div className="mb-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
