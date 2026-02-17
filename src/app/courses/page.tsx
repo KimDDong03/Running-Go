@@ -1,6 +1,6 @@
 'use client';
 
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { trpc } from '@/components/providers/TRPCProvider';
@@ -176,6 +176,7 @@ export default function CoursesPage() {
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const panelContentDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean } | null>(null);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
 
@@ -282,6 +283,55 @@ export default function CoursesPage() {
     snapPanelHeight(clampedHeight);
   };
 
+  const onPanelContentTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 1) return;
+    panelContentDragStateRef.current = {
+      startY: event.touches[0]?.clientY ?? 0,
+      startHeight: panelHeight,
+      lastHeight: panelHeight,
+      isDragging: false,
+    };
+  };
+
+  const onPanelContentTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const dragState = panelContentDragStateRef.current;
+    if (!dragState || event.touches.length !== 1) return;
+
+    const touch = event.touches[0];
+    if (!touch) return;
+
+    const delta = dragState.startY - touch.clientY;
+    const isContentAtTop = event.currentTarget.scrollTop <= 0;
+
+    if (!dragState.isDragging) {
+      if (!isContentAtTop || delta >= -6) {
+        return;
+      }
+      dragState.isDragging = true;
+      setIsPanelDragging(true);
+    }
+
+    event.preventDefault();
+
+    const { min, max } = getPanelSnapHeights();
+    const nextHeight = dragState.startHeight + delta;
+    const clampedHeight = Math.max(min, Math.min(max, nextHeight));
+    dragState.lastHeight = clampedHeight;
+    setPanelHeight(clampedHeight);
+  };
+
+  const onPanelContentTouchEnd = () => {
+    const dragState = panelContentDragStateRef.current;
+    panelContentDragStateRef.current = null;
+    if (!dragState || !dragState.isDragging) {
+      setIsPanelDragging(false);
+      return;
+    }
+
+    setIsPanelDragging(false);
+    snapPanelHeight(dragState.lastHeight);
+  };
+
   const collapsePanelToMin = () => {
     const { min } = getPanelSnapHeights();
     setPanelHeight((prev) => (prev > min ? min : prev));
@@ -309,8 +359,10 @@ export default function CoursesPage() {
     const focusCourseId = params.get('focusCourseId');
     if (!focusCourseId) return;
 
-    setIsNearbyCourseMarkerVisible(true);
-    setSelectedCourseId(focusCourseId);
+    queueMicrotask(() => {
+      setIsNearbyCourseMarkerVisible(true);
+      setSelectedCourseId(focusCourseId);
+    });
 
     params.delete('focusCourseId');
     const queryString = params.toString();
@@ -746,8 +798,10 @@ export default function CoursesPage() {
     if (typeof window === 'undefined') return;
     const hasSeenOnboarding = window.localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1';
     if (hasSeenOnboarding) return;
-    setOnboardingStepIndex(0);
-    setIsOnboardingOpen(true);
+    queueMicrotask(() => {
+      setOnboardingStepIndex(0);
+      setIsOnboardingOpen(true);
+    });
   }, []);
 
   const onboardingStep = onboardingSteps[onboardingStepIndex];
@@ -870,6 +924,10 @@ export default function CoursesPage() {
                   WebkitOverflowScrolling: 'touch',
                   overscrollBehaviorY: 'contain',
                 }}
+                onTouchStart={onPanelContentTouchStart}
+                onTouchMove={onPanelContentTouchMove}
+                onTouchEnd={onPanelContentTouchEnd}
+                onTouchCancel={onPanelContentTouchEnd}
               >
                 <div className="mb-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
