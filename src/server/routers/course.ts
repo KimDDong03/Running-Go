@@ -3,6 +3,8 @@ import { TRPCError } from '@trpc/server';
 import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 
+const INSTANT_PUBLISH_CREATOR_EMAIL = 'ehdrjs0887@gmail.com';
+
 const WaypointSchema = z.object({
   lat: z.number(),
   lng: z.number(),
@@ -315,6 +317,9 @@ export const courseRouter = createTRPCRouter({
   create: protectedProcedure
     .input(CreateCourseInput)
     .mutation(async ({ input, ctx }) => {
+      const creatorEmail = ctx.session?.user?.email?.toLowerCase();
+      const isInstantPublishCreator = creatorEmail === INSTANT_PUBLISH_CREATOR_EMAIL;
+
       // Validate distance constraints (500m ~ 20km)
       if (input.totalDistance < 0.5 || input.totalDistance > 20) {
         throw new Error('Course distance must be between 500m and 20km');
@@ -324,7 +329,7 @@ export const courseRouter = createTRPCRouter({
         data: {
           ...input,
           creatorId: ctx.userId,
-          status: 'HIDDEN',
+          status: isInstantPublishCreator ? 'ACTIVE' : 'HIDDEN',
         },
         include: {
           creator: {
