@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ChevronLeft } from 'lucide-react';
 import { trpc } from '@/components/providers/TRPCProvider';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
 
 interface DraftData {
   waypoints: { lat: number; lng: number; order: number }[];
@@ -20,12 +21,14 @@ interface DraftData {
 export default function CreateCourseDetailsPage() {
   const router = useRouter();
   const { status: sessionStatus } = useSession();
+  const { locale } = useLocale();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [difficulty, setDifficulty] = useState<'EASY' | 'MEDIUM' | 'HARD'>('EASY');
   const [isPublic, setIsPublic] = useState(true);
   const [tags, setTags] = useState('');
   const createCourse = trpc.course.create.useMutation();
+  const isEnglish = locale === 'en';
 
   const draft = useMemo(() => {
     if (typeof window === 'undefined') return null;
@@ -86,14 +89,14 @@ export default function CreateCourseDetailsPage() {
       window.sessionStorage.removeItem('courseDraft');
       router.push(`/courses/${result.id}`);
     } catch {
-      toast.error('코스를 저장하지 못했습니다. 다시 시도해주세요.');
+      toast.error(isEnglish ? 'Failed to save the course. Please try again.' : '코스를 저장하지 못했습니다. 다시 시도해주세요.');
     }
   };
 
   if (sessionStatus === 'loading') {
     return (
       <div className="rg-page flex items-center justify-center p-6">
-        <p className="text-slate-500">로그인 상태를 확인하는 중...</p>
+        <p className="text-slate-500">{isEnglish ? 'Checking login status...' : '로그인 상태를 확인하는 중...'}</p>
       </div>
     );
   }
@@ -103,14 +106,14 @@ export default function CreateCourseDetailsPage() {
       <div className="rg-page flex items-center justify-center p-6">
         <Card className="w-full max-w-md rounded-3xl border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
           <CardContent className="p-6 text-center space-y-4">
-            <h1 className="text-xl font-semibold text-slate-900">로그인 후 코스를 저장할 수 있어요</h1>
-            <p className="text-sm text-slate-600">작성자 권한 관리를 위해 로그인 사용자만 코스를 저장할 수 있습니다.</p>
+            <h1 className="text-xl font-semibold text-slate-900">{isEnglish ? 'Sign in to save this course' : '로그인 후 코스를 저장할 수 있어요'}</h1>
+            <p className="text-sm text-slate-600">{isEnglish ? 'Only signed-in users can save courses to keep creator ownership accurate.' : '작성자 권한 관리를 위해 로그인 사용자만 코스를 저장할 수 있습니다.'}</p>
             <div className="flex items-center justify-center gap-2">
               <Link href="/create">
-                <Button variant="outline" className="rg-touch rounded-full">이전 단계</Button>
+                <Button variant="outline" className="rg-touch rounded-full">{isEnglish ? 'Previous Step' : '이전 단계'}</Button>
               </Link>
               <Link href="/login">
-                <Button className="rg-touch rounded-full">로그인</Button>
+                <Button className="rg-touch rounded-full">{isEnglish ? 'Sign in' : '로그인'}</Button>
               </Link>
             </div>
           </CardContent>
@@ -123,9 +126,9 @@ export default function CreateCourseDetailsPage() {
     return (
       <div className="rg-page flex items-center justify-center p-6">
         <div className="text-center">
-          <p className="text-slate-500">저장된 코스 정보가 없습니다</p>
+          <p className="text-slate-500">{isEnglish ? 'No saved course draft found.' : '저장된 코스 정보가 없습니다'}</p>
           <Link href="/create">
-            <Button className="rg-touch mt-4 rounded-full">코스 만들기</Button>
+            <Button className="rg-touch mt-4 rounded-full">{isEnglish ? 'Create Course' : '코스 만들기'}</Button>
           </Link>
         </div>
       </div>
@@ -141,8 +144,8 @@ export default function CreateCourseDetailsPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">코스 정보 입력</h1>
-          <span className="text-xs text-slate-500">2/2 단계</span>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'Course Details' : '코스 정보 입력'}</h1>
+          <span className="text-xs text-slate-500">{isEnglish ? 'Step 2/2' : '2/2 단계'}</span>
         </div>
       </header>
 
@@ -150,48 +153,48 @@ export default function CreateCourseDetailsPage() {
         <Card className="rounded-3xl border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
           <CardContent className="p-6 space-y-4">
             <div className="space-y-2">
-              <label htmlFor="title" className="text-sm font-medium">코스 제목</label>
+              <label htmlFor="title" className="text-sm font-medium">{isEnglish ? 'Course Title' : '코스 제목'}</label>
               <Input
                 id="title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="예: 한강 하트런"
+                placeholder={isEnglish ? 'e.g. Riverside Sunset Run' : '예: 한강 하트런'}
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="description" className="text-sm font-medium">설명</label>
+              <label htmlFor="description" className="text-sm font-medium">{isEnglish ? 'Description' : '설명'}</label>
               <Textarea
                 id="description"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="코스 소개를 적어주세요"
+                placeholder={isEnglish ? 'Describe this course' : '코스 소개를 적어주세요'}
                 rows={4}
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="difficulty" className="text-sm font-medium">난이도</label>
+              <label htmlFor="difficulty" className="text-sm font-medium">{isEnglish ? 'Difficulty' : '난이도'}</label>
               <select
                 id="difficulty"
                 value={difficulty}
                 onChange={(event) => setDifficulty(event.target.value as 'EASY' | 'MEDIUM' | 'HARD')}
                 className="rg-touch w-full h-12 rounded-2xl border border-white/70 bg-white/85 px-4 text-sm shadow-[0_10px_22px_-18px_rgba(15,23,42,0.6)]"
               >
-                <option value="EASY">쉬움</option>
-                <option value="MEDIUM">보통</option>
-                <option value="HARD">어려움</option>
+                <option value="EASY">{isEnglish ? 'Easy' : '쉬움'}</option>
+                <option value="MEDIUM">{isEnglish ? 'Medium' : '보통'}</option>
+                <option value="HARD">{isEnglish ? 'Hard' : '어려움'}</option>
               </select>
             </div>
             <div className="space-y-2">
-              <label htmlFor="tags" className="text-sm font-medium">태그 (최대 5개)</label>
+              <label htmlFor="tags" className="text-sm font-medium">{isEnglish ? 'Tags (up to 5)' : '태그 (최대 5개)'}</label>
               <Input
                 id="tags"
                 value={tags}
                 onChange={(event) => setTags(event.target.value)}
-                placeholder="하트, 야경, 초보"
+                placeholder={isEnglish ? 'park, night, beginner' : '하트, 야경, 초보'}
               />
             </div>
             <div className="flex items-center justify-between">
-              <label htmlFor="public" className="text-sm font-medium">공개 여부</label>
+              <label htmlFor="public" className="text-sm font-medium">{isEnglish ? 'Public Visibility' : '공개 여부'}</label>
               <input
                 id="public"
                 type="checkbox"
@@ -204,20 +207,20 @@ export default function CreateCourseDetailsPage() {
 
         <Card className="rounded-3xl shadow-md">
           <CardContent className="p-6 space-y-2 text-sm text-slate-600">
-            <div>웨이포인트: {draft.waypoints.length}개</div>
-            <div>예상 거리: {draft.totalDistance.toFixed(2)}km</div>
-            <div>예상 시간: {estimatedTime}분</div>
+            <div>{isEnglish ? 'Waypoints' : '웨이포인트'}: {draft.waypoints.length}{isEnglish ? '' : '개'}</div>
+            <div>{isEnglish ? 'Estimated Distance' : '예상 거리'}: {draft.totalDistance.toFixed(2)}km</div>
+            <div>{isEnglish ? 'Estimated Time' : '예상 시간'}: {estimatedTime}{isEnglish ? ' min' : '분'}</div>
           </CardContent>
         </Card>
 
         {isDistanceOutOfRange && (
           <div className="text-sm text-red-500">
-            코스 거리는 0.5km ~ 20km 사이여야 합니다
+            {isEnglish ? 'Course distance must be between 0.5km and 20km.' : '코스 거리는 0.5km ~ 20km 사이여야 합니다'}
           </div>
         )}
 
         {createCourse.error?.data?.code === 'UNAUTHORIZED' && (
-          <div className="text-sm text-red-500">로그인이 필요합니다</div>
+          <div className="text-sm text-red-500">{isEnglish ? 'Sign-in is required.' : '로그인이 필요합니다'}</div>
         )}
 
         <Button
@@ -226,7 +229,7 @@ export default function CreateCourseDetailsPage() {
           disabled={!title || createCourse.isPending || isDistanceOutOfRange}
           onClick={handleSubmit}
         >
-          코스 저장하기
+          {isEnglish ? 'Save Course' : '코스 저장하기'}
         </Button>
       </main>
     </div>

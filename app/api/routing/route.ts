@@ -13,6 +13,43 @@ const normalizeProfile = (value: unknown): RoutingProfile => {
   return 'driving';
 };
 
+const distanceMeters = (a: RoutingPoint, b: RoutingPoint) => {
+  const R = 6371e3;
+  const phi1 = a.lat * Math.PI / 180;
+  const phi2 = b.lat * Math.PI / 180;
+  const deltaPhi = (b.lat - a.lat) * Math.PI / 180;
+  const deltaLambda = (b.lng - a.lng) * Math.PI / 180;
+  const c = 2 * Math.atan2(
+    Math.sqrt(
+      Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2)
+      + Math.cos(phi1) * Math.cos(phi2)
+      * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2)
+    ),
+    Math.sqrt(
+      1 - (
+        Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2)
+        + Math.cos(phi1) * Math.cos(phi2)
+        * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2)
+      )
+    )
+  );
+  return R * c;
+};
+
+const buildFallbackRoute = (points: RoutingPoint[]) => {
+  const coordinates = points.map((point) => [point.lng, point.lat] as [number, number]);
+  let totalMeters = 0;
+  for (let i = 1; i < points.length; i++) {
+    totalMeters += distanceMeters(points[i - 1], points[i]);
+  }
+
+  return {
+    coordinates,
+    distanceKm: totalMeters / 1000,
+    fallback: true,
+  };
+};
+
 export async function POST(request: Request) {
   let payload: unknown;
   try {
@@ -35,10 +72,18 @@ export async function POST(request: Request) {
   try {
     const result = await routeWithProvider(profile, points);
     if (!result) {
-      return NextResponse.json({ error: '경로를 찾을 수 없습니다', profile }, { status: 404 });
+      return NextResponse.json({
+        ...buildFallbackRoute(points),
+        error: '경로를 찾지 못해 직선 경로로 대체했습니다',
+        profile,
+      });
     }
     return NextResponse.json(result);
   } catch {
-    return NextResponse.json({ error: '경로 서버 호출에 실패했습니다', profile }, { status: 502 });
+    return NextResponse.json({
+      ...buildFallbackRoute(points),
+      error: '경로 서버 호출에 실패해 직선 경로로 대체했습니다',
+      profile,
+    });
   }
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -28,6 +29,8 @@ interface Waypoint {
   order: number;
 }
 
+const MAX_WAYPOINT_COUNT = 30;
+
 const hasCoord = (value: unknown): value is { coord: { lat: () => number; lng: () => number } } => {
   if (!value || typeof value !== 'object') return false;
   if (!('coord' in value)) return false;
@@ -47,14 +50,21 @@ export default function CreateCoursePage() {
   const [segments, setSegments] = useState<{ coords: [number, number][]; distanceKm: number }[]>([]);
   const [isLocating, setIsLocating] = useState(false);
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [inputMode, setInputMode] = useState<'click' | 'draw'>('click');
+  const [isDrawing, setIsDrawing] = useState(false);
 
   const waypointMarkersRef = useRef<{ marker: MapMarkerLike; dragStartListener: object | null; dragEndListener: object | null }[]>([]);
   const mapClickListenerRef = useRef<object | null>(null);
   const routeOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const routeMainPolylineRef = useRef<MapPolylineLike | null>(null);
+  const drawOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
+  const drawMainPolylineRef = useRef<MapPolylineLike | null>(null);
 
   const waypointsRef = useRef<Waypoint[]>([]);
   const isRoutingRef = useRef(false);
+  const inputModeRef = useRef<'click' | 'draw'>('click');
+  const isDrawingRef = useRef(false);
+  const drawPointsRef = useRef<{ lat: number; lng: number }[]>([]);
   const addWaypointRef = useRef<(lat: number, lng: number) => void>(() => undefined);
   const segmentsRef = useRef<{ coords: [number, number][]; distanceKm: number }[]>([]);
   const mapLoadedRef = useRef(false);
@@ -63,11 +73,14 @@ export default function CreateCoursePage() {
   const lastDirectionsWarningRef = useRef(0);
   const isAppliedRouteEditableRef = useRef(false);
   const suppressMarkerClickRef = useRef(false);
+  const mapDrawListenersRef = useRef<object[]>([]);
   const router = useRouter();
   const { status: sessionStatus } = useSession();
+  const { locale } = useLocale();
   const { data: profileSummary } = trpc.profile.summary.useQuery(undefined, {
     enabled: sessionStatus === 'authenticated',
   });
+  const isEnglish = locale === 'en';
 
   const setAppliedRouteEditable = useCallback((value: boolean) => {
     isAppliedRouteEditableRef.current = value;
@@ -85,14 +98,29 @@ export default function CreateCoursePage() {
     isRoutingRef.current = isRouting;
   }, [isRouting]);
 
+  useEffect(() => {
+    inputModeRef.current = inputMode;
+    if (inputMode !== 'draw') {
+      isDrawingRef.current = false;
+      setIsDrawing(false);
+      map.current?.setOptions?.({ draggable: true });
+    }
+  }, [inputMode]);
+
+  useEffect(() => {
+    isDrawingRef.current = isDrawing;
+  }, [isDrawing]);
+
   const showDirectionsUnavailableWarning = useCallback((message?: string) => {
     const now = Date.now();
     if (now - lastDirectionsWarningRef.current < 1200) {
       return;
     }
     lastDirectionsWarningRef.current = now;
-    toast.error(message ?? '자동 경로를 계산하지 못했습니다. API/쿼터를 확인해주세요');
-  }, []);
+    toast.error(message ?? (isEnglish
+      ? 'Unable to compute an auto route. Please try a different point.'
+      : '자동 경로를 계산하지 못했습니다. 다른 지점을 선택해 다시 시도해주세요'));
+  }, [isEnglish]);
 
   const distanceMeters = useCallback((p1: { lat: number; lng: number }, p2: { lat: number; lng: number }) => {
     const R = 6371e3;
@@ -123,12 +151,14 @@ export default function CreateCoursePage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ profile: 'driving', points }),
+        body: JSON.stringify({ profile: 'walking', points }),
       });
 
       if (!response.ok) {
+        const errorData = await response.json().catch(() => null) as { error?: unknown } | null;
+        const errorMessage = typeof errorData?.error === 'string' ? errorData.error : null;
         if (!options?.silent) {
-          toast.error('자동 경로를 가져오지 못했습니다');
+          toast.error(errorMessage ?? (isEnglish ? 'Unable to load an auto route.' : '자동 경로를 가져오지 못했습니다'));
         }
         return null;
       }
@@ -139,7 +169,7 @@ export default function CreateCoursePage() {
       };
       if (!Array.isArray(data.coordinates) || data.coordinates.length < 2) {
         if (!options?.silent) {
-          toast.error('사용 가능한 경로가 없습니다');
+          toast.error(isEnglish ? 'No usable route was found.' : '사용 가능한 경로가 없습니다');
         }
         return null;
       }
@@ -150,11 +180,11 @@ export default function CreateCoursePage() {
       };
     } catch {
       if (!options?.silent) {
-        toast.error('자동 경로를 가져오지 못했습니다');
+        toast.error(isEnglish ? 'Unable to load an auto route.' : '자동 경로를 가져오지 못했습니다');
       }
       return null;
     }
-  }, []);
+  }, [isEnglish]);
 
   const sampleRoutePoints = useCallback((coordinates: [number, number][], count: number) => {
     if (coordinates.length === 0 || count <= 0) {
@@ -211,7 +241,7 @@ export default function CreateCoursePage() {
       distances.push(total);
     }
 
-    const targetCount = Math.min(400, Math.max(5, Math.floor(total / 8) + 1));
+    const targetCount = Math.min(MAX_WAYPOINT_COUNT, Math.max(5, Math.floor(total / 45) + 1));
     const sampled = sampleRoutePoints(coordinates, targetCount);
     return sampled.map((point, index) => ({
       lat: point.lat,
@@ -300,6 +330,73 @@ export default function CreateCoursePage() {
     }
   }, [clearRouteLine]);
 
+  const clearDrawLine = useCallback(() => {
+    drawOutlinePolylineRef.current?.setMap(null);
+    drawMainPolylineRef.current?.setMap(null);
+    drawOutlinePolylineRef.current = null;
+    drawMainPolylineRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (inputMode === 'draw') {
+      return;
+    }
+    drawPointsRef.current = [];
+    clearDrawLine();
+  }, [clearDrawLine, inputMode]);
+
+  const updateDrawLine = useCallback((points: { lat: number; lng: number }[]) => {
+    const sdk = mapSdkRef.current;
+    const mapInstance = map.current;
+    if (!sdk || !mapInstance) return;
+
+    if (points.length < 2) {
+      clearDrawLine();
+      return;
+    }
+
+    const path = points.map((point) => new sdk.LatLng(point.lat, point.lng));
+
+    if (drawOutlinePolylineRef.current) {
+      drawOutlinePolylineRef.current.setPath(path);
+    } else {
+      drawOutlinePolylineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#ffffff',
+        strokeWeight: 7,
+        strokeOpacity: 0.9,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+    }
+
+    if (drawMainPolylineRef.current) {
+      drawMainPolylineRef.current.setPath(path);
+    } else {
+      drawMainPolylineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: '#f97316',
+        strokeWeight: 5,
+        strokeOpacity: 0.95,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+    }
+  }, [clearDrawLine]);
+
+  const sampleDrawPoints = useCallback((points: { lat: number; lng: number }[]) => {
+    if (points.length <= 20) {
+      return points;
+    }
+    const source = points.map((point) => [point.lng, point.lat] as [number, number]);
+    const sampled = sampleRoutePoints(source, 20);
+    return sampled;
+  }, [sampleRoutePoints]);
+
   const renderWaypointMarkers = useCallback((points: Waypoint[], markerMode: 'manual' | 'applied') => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
@@ -349,8 +446,8 @@ export default function CreateCoursePage() {
       ].join(' ');
       markerButton.textContent = String(index + 1);
       markerButton.title = markerMode === 'applied'
-        ? '클릭하면 이 경유지를 제외하고 경로를 다시 만듭니다'
-        : '클릭하면 이 경유지를 삭제합니다';
+        ? (isEnglish ? 'Click to remove this waypoint and rebuild route' : '클릭하면 이 경유지를 제외하고 경로를 다시 만듭니다')
+        : (isEnglish ? 'Click to remove this waypoint' : '클릭하면 이 경유지를 삭제합니다');
 
       markerButton.onclick = async (event) => {
         event.preventDefault();
@@ -440,7 +537,62 @@ export default function CreateCoursePage() {
 
       waypointMarkersRef.current.push({ marker, dragStartListener, dragEndListener });
     });
-  }, [clearWaypointMarkers, distanceMeters, fetchMatchedRoute, showDirectionsUnavailableWarning, updateRouteLine]);
+  }, [clearWaypointMarkers, distanceMeters, fetchMatchedRoute, isEnglish, showDirectionsUnavailableWarning, updateRouteLine]);
+
+  const applyDrawRoute = useCallback(async () => {
+    if (isRoutingRef.current) {
+      return;
+    }
+
+    const rawPoints = drawPointsRef.current;
+    if (rawPoints.length < 2) {
+      toast.warning(isEnglish ? 'Draw a line first.' : '라인을 먼저 그려주세요');
+      return;
+    }
+
+    const sampledPoints = sampleDrawPoints(rawPoints);
+    setIsRouting(true);
+    isRoutingRef.current = true;
+
+    try {
+      const matched = await fetchMatchedRoute(sampledPoints, { silent: true });
+      if (!matched) {
+        showDirectionsUnavailableWarning();
+        return;
+      }
+
+      const denseWaypoints = buildDenseWaypoints(matched.coordinates);
+      const nextWaypoints = denseWaypoints.length
+        ? denseWaypoints
+        : matched.coordinates.map(([lng, lat], index) => ({ lat, lng, order: index }));
+
+      setAppliedRouteEditable(true);
+      setWaypoints(nextWaypoints);
+      setSegments([{ coords: matched.coordinates, distanceKm: matched.distanceKm }]);
+      setTotalDistance(matched.distanceKm || calculatePolylineDistanceKm(matched.coordinates));
+      routeCoordinatesRef.current = matched.coordinates;
+      updateRouteLine(matched.coordinates);
+      renderWaypointMarkers(nextWaypoints, 'applied');
+
+      drawPointsRef.current = [];
+      clearDrawLine();
+      setIsDrawing(false);
+    } finally {
+      setIsRouting(false);
+      isRoutingRef.current = false;
+    }
+  }, [
+    buildDenseWaypoints,
+    calculatePolylineDistanceKm,
+    clearDrawLine,
+    fetchMatchedRoute,
+    isEnglish,
+    renderWaypointMarkers,
+    sampleDrawPoints,
+    setAppliedRouteEditable,
+    showDirectionsUnavailableWarning,
+    updateRouteLine,
+  ]);
 
   useEffect(() => {
     if (sessionStatus !== 'authenticated') {
@@ -470,9 +622,60 @@ export default function CreateCoursePage() {
 
         mapClickListenerRef.current = sdk.Event.addListener(mapInstance, 'click', (event: unknown) => {
           if (isRoutingRef.current) return;
+          if (inputModeRef.current !== 'click') return;
           if (!hasCoord(event)) return;
           void addWaypointRef.current(event.coord.lat(), event.coord.lng());
         });
+
+        const appendDrawPoint = (lat: number, lng: number) => {
+          const nextPoint = { lat, lng };
+          const prevPoints = drawPointsRef.current;
+          if (prevPoints.length === 0) {
+            drawPointsRef.current = [nextPoint];
+            updateDrawLine(drawPointsRef.current);
+            return;
+          }
+
+          const last = prevPoints[prevPoints.length - 1];
+          if (distanceMeters(last, nextPoint) < 6) {
+            return;
+          }
+
+          const next = [...prevPoints, nextPoint];
+          drawPointsRef.current = next;
+          updateDrawLine(next);
+        };
+
+        const startDraw = (event: unknown) => {
+          if (inputModeRef.current !== 'draw' || isRoutingRef.current) return;
+          if (!hasCoord(event)) return;
+          isDrawingRef.current = true;
+          setIsDrawing(true);
+          mapInstance.setOptions?.({ draggable: false });
+          drawPointsRef.current = [{ lat: event.coord.lat(), lng: event.coord.lng() }];
+          updateDrawLine(drawPointsRef.current);
+        };
+
+        const moveDraw = (event: unknown) => {
+          if (!isDrawingRef.current || !hasCoord(event)) return;
+          appendDrawPoint(event.coord.lat(), event.coord.lng());
+        };
+
+        const endDraw = () => {
+          if (!isDrawingRef.current) return;
+          isDrawingRef.current = false;
+          setIsDrawing(false);
+          mapInstance.setOptions?.({ draggable: true });
+        };
+
+        mapDrawListenersRef.current = [
+          sdk.Event.addListener(mapInstance, 'mousedown', startDraw),
+          sdk.Event.addListener(mapInstance, 'mousemove', moveDraw),
+          sdk.Event.addListener(mapInstance, 'mouseup', endDraw),
+          sdk.Event.addListener(mapInstance, 'touchstart', startDraw),
+          sdk.Event.addListener(mapInstance, 'touchmove', moveDraw),
+          sdk.Event.addListener(mapInstance, 'touchend', endDraw),
+        ];
 
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
@@ -509,7 +712,7 @@ export default function CreateCoursePage() {
         }
       })
       .catch(() => {
-        toast.error('지도를 불러오지 못했습니다');
+        toast.error(isEnglish ? 'Failed to load map.' : '지도를 불러오지 못했습니다');
       });
 
     return () => {
@@ -519,15 +722,22 @@ export default function CreateCoursePage() {
         sdk.Event.removeListener(mapClickListenerRef.current);
         mapClickListenerRef.current = null;
       }
+      if (sdk && mapDrawListenersRef.current.length) {
+        mapDrawListenersRef.current.forEach((listener) => {
+          sdk.Event.removeListener(listener);
+        });
+        mapDrawListenersRef.current = [];
+      }
       clearWaypointMarkers();
       clearRouteLine();
+      clearDrawLine();
       currentLocationMarkerRef.current?.setMap(null);
       currentLocationMarkerRef.current = null;
       map.current?.destroy();
       map.current = null;
       mapLoadedRef.current = false;
     };
-  }, [clearRouteLine, clearWaypointMarkers, profileSummary?.user.image, sessionStatus, updateRouteLine]);
+  }, [clearDrawLine, clearRouteLine, clearWaypointMarkers, distanceMeters, isEnglish, profileSummary?.user.image, sessionStatus, updateDrawLine, updateRouteLine]);
 
   const buildRouteCoordinates = useCallback((points: Waypoint[], pathSegments: { coords: [number, number][] }[]) => {
     if (points.length === 0) {
@@ -553,8 +763,10 @@ export default function CreateCoursePage() {
     }
 
     const prev = waypointsRef.current;
-    if (prev.length >= 30) {
-      toast.warning('최대 30개의 경유지만 추가할 수 있습니다');
+    if (prev.length >= MAX_WAYPOINT_COUNT) {
+      toast.warning(isEnglish
+        ? `You can add up to ${MAX_WAYPOINT_COUNT} waypoints.`
+        : `최대 ${MAX_WAYPOINT_COUNT}개의 경유지만 추가할 수 있습니다`);
       return;
     }
 
@@ -620,7 +832,7 @@ export default function CreateCoursePage() {
       setIsRouting(false);
       isRoutingRef.current = false;
     }
-  }, [buildRouteCoordinates, fetchMatchedRoute, renderWaypointMarkers, setAppliedRouteEditable, showDirectionsUnavailableWarning, updateRouteLine]);
+  }, [buildRouteCoordinates, fetchMatchedRoute, isEnglish, renderWaypointMarkers, setAppliedRouteEditable, showDirectionsUnavailableWarning, updateRouteLine]);
 
   useEffect(() => {
     addWaypointRef.current = addWaypoint;
@@ -672,7 +884,9 @@ export default function CreateCoursePage() {
     setAppliedRouteEditable(false);
     setTotalDistance(0);
     routeCoordinatesRef.current = [];
+    drawPointsRef.current = [];
     setIsRouting(false);
+    setIsDrawing(false);
     setSegments([]);
     
     // Remove markers
@@ -680,18 +894,19 @@ export default function CreateCoursePage() {
 
     // Remove line
     clearRouteLine();
+    clearDrawLine();
   };
 
   const moveToCurrentLocation = () => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!navigator.geolocation) {
-      toast.error('현재 위치를 가져올 수 없습니다');
+      toast.error(isEnglish ? 'Unable to access current location.' : '현재 위치를 가져올 수 없습니다');
       return;
     }
 
     if (!sdk || !mapInstance) {
-      toast.error('지도를 불러오는 중입니다');
+      toast.error(isEnglish ? 'Map is still loading.' : '지도를 불러오는 중입니다');
       return;
     }
 
@@ -724,7 +939,9 @@ export default function CreateCoursePage() {
       },
       () => {
         setIsLocating(false);
-        toast.error('위치 권한을 허용하면 현재 위치로 이동할 수 있어요');
+        toast.error(isEnglish
+          ? 'Allow location permission to move to your current position.'
+          : '위치 권한을 허용하면 현재 위치로 이동할 수 있어요');
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
@@ -734,7 +951,7 @@ export default function CreateCoursePage() {
   if (sessionStatus === 'loading') {
     return (
       <div className="rg-page flex items-center justify-center p-6">
-        <p className="text-slate-500">로그인 상태를 확인하는 중...</p>
+        <p className="text-slate-500">{isEnglish ? 'Checking login status...' : '로그인 상태를 확인하는 중...'}</p>
       </div>
     );
   }
@@ -744,14 +961,14 @@ export default function CreateCoursePage() {
       <div className="rg-page flex items-center justify-center p-6">
         <Card className="w-full max-w-md rounded-3xl border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
           <CardContent className="p-6 text-center space-y-4">
-            <h1 className="text-xl font-semibold text-slate-900">로그인 후 코스를 만들 수 있어요</h1>
-            <p className="text-sm text-slate-600">코스 작성자를 정확히 관리하기 위해 로그인 사용자만 코스를 제작할 수 있습니다.</p>
+          <h1 className="text-xl font-semibold text-slate-900">{isEnglish ? 'Sign in to create a course' : '로그인 후 코스를 만들 수 있어요'}</h1>
+          <p className="text-sm text-slate-600">{isEnglish ? 'Only signed-in users can create courses so creator ownership stays accurate.' : '코스 작성자를 정확히 관리하기 위해 로그인 사용자만 코스를 제작할 수 있습니다.'}</p>
             <div className="flex items-center justify-center gap-2">
               <Link href="/">
-                <Button variant="outline" className="rg-touch rounded-full">홈으로</Button>
+            <Button variant="outline" className="rg-touch rounded-full">{isEnglish ? 'Home' : '홈으로'}</Button>
               </Link>
               <Link href="/login">
-                <Button className="rg-touch rounded-full">로그인</Button>
+            <Button className="rg-touch rounded-full">{isEnglish ? 'Sign in' : '로그인'}</Button>
               </Link>
             </div>
           </CardContent>
@@ -770,8 +987,8 @@ export default function CreateCoursePage() {
           </Button>
         </Link>
         <div className="text-center">
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">코스 제작</h1>
-          <span className="text-xs text-slate-500">1/2 단계</span>
+            <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'Create Course' : '코스 제작'}</h1>
+            <span className="text-xs text-slate-500">{isEnglish ? 'Step 1/2' : '1/2 단계'}</span>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -780,8 +997,8 @@ export default function CreateCoursePage() {
             className="rg-touch-icon rg-press rounded-full border border-white/80 bg-white/90 text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
             onClick={undoLastWaypoint}
             disabled={waypoints.length === 0 || isRouting}
-            aria-label="이전 단계로 되돌리기"
-            title="이전"
+            aria-label={isEnglish ? 'Go back' : '이전 단계로 되돌리기'}
+            title={isEnglish ? 'Back' : '이전'}
           >
             <Undo2 className="w-5 h-5" />
           </Button>
@@ -792,17 +1009,19 @@ export default function CreateCoursePage() {
                 size="icon"
                 className="rg-touch-icon rg-press rounded-full border border-white/80 bg-white/90 text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
                 disabled={waypoints.length === 0 || isRouting}
-                aria-label="현재 경로 초기화"
-                title="초기화"
+            aria-label={isEnglish ? 'Reset current route' : '현재 경로 초기화'}
+            title={isEnglish ? 'Reset' : '초기화'}
               >
                 <RotateCcw className="w-5 h-5" />
               </Button>
             </DialogTrigger>
             <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
               <DialogHeader>
-                <DialogTitle className="text-slate-900">경로를 초기화할까요?</DialogTitle>
+              <DialogTitle className="text-slate-900">{isEnglish ? 'Reset route?' : '경로를 초기화할까요?'}</DialogTitle>
                 <DialogDescription className="text-slate-600">
-                  현재 추가한 마커와 동선이 모두 삭제됩니다. 이 작업은 되돌릴 수 없어요.
+                {isEnglish
+                  ? 'All added markers and route paths will be removed. This action cannot be undone.'
+                  : '현재 추가한 마커와 동선이 모두 삭제됩니다. 이 작업은 되돌릴 수 없어요.'}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -811,7 +1030,7 @@ export default function CreateCoursePage() {
                   className="rounded-full"
                   onClick={() => setIsClearDialogOpen(false)}
                 >
-                  취소
+                {isEnglish ? 'Cancel' : '취소'}
                 </Button>
                 <Button
                   variant="destructive"
@@ -821,7 +1040,7 @@ export default function CreateCoursePage() {
                     setIsClearDialogOpen(false);
                   }}
                 >
-                  초기화
+                {isEnglish ? 'Reset' : '초기화'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -836,7 +1055,7 @@ export default function CreateCoursePage() {
         <Button
           type="button"
           variant="ghost"
-          aria-label="내 현재 위치로 이동"
+          aria-label={isEnglish ? 'Move to my current location' : '내 현재 위치로 이동'}
           className={`${LOCATION_FAB_BASE_CLASS} ${LOCATION_FAB_TRANSITION_CLASS}`}
           style={{ bottom: getLocationFabBottom(24) }}
           onClick={moveToCurrentLocation}
@@ -849,8 +1068,12 @@ export default function CreateCoursePage() {
           <div className="absolute top-4 left-4 right-4 rg-soft-panel p-4">
             <p className="text-sm text-slate-600 text-center">
               {isRouting
-                ? '보행 경로를 계산 중입니다'
-                : '지도를 터치하거나 프리셋을 적용하세요'}
+                ? (isEnglish ? 'Calculating walking route...' : '보행 경로를 계산 중입니다')
+                : inputMode === 'draw'
+                  ? isDrawing
+                    ? (isEnglish ? 'Drawing line...' : '라인을 그리는 중입니다')
+                    : (isEnglish ? 'Draw a line, then tap Apply Route.' : '라인을 그린 뒤 경로 적용 버튼을 눌러주세요')
+                  : (isEnglish ? 'Tap map to add points or apply a preset.' : '지도를 터치하거나 프리셋을 적용하세요')}
             </p>
           </div>
       </div>
@@ -858,15 +1081,65 @@ export default function CreateCoursePage() {
       {/* Bottom Panel */}
       <Card className="m-4 rounded-3xl shadow-xl">
         <CardContent className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={inputMode === 'click' ? 'default' : 'outline'}
+              className="rounded-2xl"
+              onClick={() => {
+                setInputMode('click');
+              }}
+            >
+              {isEnglish ? 'Click Mode' : '클릭 추가'}
+            </Button>
+            <Button
+              type="button"
+              variant={inputMode === 'draw' ? 'default' : 'outline'}
+              className="rounded-2xl"
+              onClick={() => {
+                setInputMode('draw');
+              }}
+            >
+              {isEnglish ? 'Draw Mode' : '라인 드로잉'}
+            </Button>
+          </div>
+
+          {inputMode === 'draw' && (
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-2xl"
+                onClick={() => {
+                  drawPointsRef.current = [];
+                  clearDrawLine();
+                  setIsDrawing(false);
+                }}
+              >
+                {isEnglish ? 'Clear Drawing' : '드로잉 초기화'}
+              </Button>
+              <Button
+                type="button"
+                className="rounded-2xl"
+                disabled={isRouting || drawPointsRef.current.length < 2}
+                onClick={() => {
+                  void applyDrawRoute();
+                }}
+              >
+                {isEnglish ? 'Apply Route' : '경로로 적용'}
+              </Button>
+            </div>
+          )}
+
           <div className="flex justify-between items-center">
             <div>
               <p className="text-sm text-slate-600">Waypoint</p>
               <p className="text-2xl font-bold text-primary">
-                {waypoints.length}<span className="text-sm text-slate-400">/30</span>
+                {waypoints.length}<span className="text-sm text-slate-400">/{MAX_WAYPOINT_COUNT}</span>
               </p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-slate-600">예상 거리</p>
+              <p className="text-sm text-slate-600">{isEnglish ? 'Estimated Distance' : '예상 거리'}</p>
               <p className="text-2xl font-bold text-primary">
                 {totalDistance.toFixed(2)}<span className="text-sm text-slate-400">km</span>
               </p>
@@ -875,7 +1148,7 @@ export default function CreateCoursePage() {
 
           {waypoints.length < 5 && (
             <p className="text-sm text-orange-500 text-center">
-              최소 5개의 waypoint가 필요합니다
+              {isEnglish ? 'At least 5 waypoints are required.' : '최소 5개의 waypoint가 필요합니다'}
             </p>
           )}
 
@@ -896,7 +1169,7 @@ export default function CreateCoursePage() {
               router.push('/create/details');
             }}
           >
-            다음 단계로 →
+            {isEnglish ? 'Next Step →' : '다음 단계로 →'}
           </Button>
         </CardContent>
       </Card>

@@ -17,7 +17,7 @@ const messages: Record<AppLocale, Record<MessageKey, string>> = {
     'nav.rankings': '랭킹',
     'nav.profile': '프로필',
     'lang.ko': '한국어',
-    'lang.en': '영어',
+    'lang.en': 'English',
   },
   en: {
     'nav.home': 'Home',
@@ -25,7 +25,7 @@ const messages: Record<AppLocale, Record<MessageKey, string>> = {
     'nav.create': 'Create',
     'nav.rankings': 'Rankings',
     'nav.profile': 'Profile',
-    'lang.ko': 'Korean',
+    'lang.ko': '한국어',
     'lang.en': 'English',
   },
 };

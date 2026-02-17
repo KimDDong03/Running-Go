@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { AdSlot } from '@/app/components/ads/AdSlot';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,8 @@ const difficultyColors: Record<Difficulty, string> = {
 
 export default function CollectionPage() {
   const router = useRouter();
+  const { locale } = useLocale();
+  const isEnglish = locale === 'en';
   const { data: session, status: sessionStatus } = useSession();
   const { data, isLoading, isError, error, refetch } = trpc.collection.listByUser.useQuery();
   const { data: createdData, isLoading: isCreatedLoading } = trpc.course.listByUser.useQuery(
@@ -47,6 +50,14 @@ export default function CollectionPage() {
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const previewMapRef = useRef<MapLike | null>(null);
   const previewPolylinesRef = useRef<MapPolylineLike[]>([]);
+  const difficultyLabel = (difficulty: Difficulty) => {
+    if (!isEnglish) {
+      return difficultyLabels[difficulty];
+    }
+    if (difficulty === 'EASY') return 'Easy';
+    if (difficulty === 'MEDIUM') return 'Medium';
+    return 'Hard';
+  };
 
   type RouteCourse = {
     id: string;
@@ -108,7 +119,9 @@ export default function CollectionPage() {
   const availableTags = (() => {
     const tags = new Set<string>();
     baseCourses.forEach((course) => {
-      course.tags.forEach((tag) => tags.add(tag));
+      course.tags.forEach((tag) => {
+        tags.add(tag);
+      });
     });
     return ['ALL', ...Array.from(tags)];
   })();
@@ -137,11 +150,6 @@ export default function CollectionPage() {
 
   const selectedCourses = sortedCourses.filter((course) => selectedCourseIds.includes(course.id));
   const hasAnyCourses = collectedCourses.length > 0 || createdCourses.length > 0;
-
-  useEffect(() => {
-    setSelectedCourseIds([]);
-    setIsRoutePreviewOpen(false);
-  }, [viewType]);
 
   useEffect(() => {
     if (!isRoutePreviewOpen || !previewMapContainerRef.current) {
@@ -226,7 +234,7 @@ export default function CollectionPage() {
         }
       })
       .catch(() => {
-        toast.error('지도를 불러오지 못했습니다');
+        toast.error(isEnglish ? 'Failed to load map.' : '지도를 불러오지 못했습니다');
       });
 
     return () => {
@@ -237,7 +245,7 @@ export default function CollectionPage() {
         previewMapRef.current = null;
       }
     };
-  }, [isRoutePreviewOpen, selectedCourses]);
+  }, [isEnglish, isRoutePreviewOpen, selectedCourses]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -262,34 +270,34 @@ export default function CollectionPage() {
           >
             <ChevronLeft className="w-6 h-6" />
           </Button>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">내 도감</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'My Collection' : '내 도감'}</h1>
         </div>
       </header>
 
       <main className="rg-page-main p-4 space-y-4">
         {isLoading || (sessionStatus === 'authenticated' && isCreatedLoading) ? (
-          <div className="text-center py-20 text-slate-500">불러오는 중...</div>
+          <div className="text-center py-20 text-slate-500">{isEnglish ? 'Loading...' : '불러오는 중...'}</div>
         ) : isError ? (
           error?.data?.code === 'UNAUTHORIZED' ? (
             <div className="text-center py-20">
-              <p className="text-red-500">로그인이 필요합니다</p>
+              <p className="text-red-500">{isEnglish ? 'Sign-in is required.' : '로그인이 필요합니다'}</p>
               <Link href="/login">
-                <Button className="rg-touch rg-press mt-4 rounded-full">로그인</Button>
+                <Button className="rg-touch rg-press mt-4 rounded-full">{isEnglish ? 'Sign in' : '로그인'}</Button>
               </Link>
             </div>
           ) : (
             <ErrorState
-              title="도감을 불러오지 못했습니다"
-              message="잠시 후 다시 시도해주세요"
-              actionLabel="다시 시도"
+              title={isEnglish ? 'Failed to load collection' : '도감을 불러오지 못했습니다'}
+              message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
+              actionLabel={isEnglish ? 'Retry' : '다시 시도'}
               onAction={() => refetch()}
             />
           )
         ) : !hasAnyCourses ? (
           <div className="text-center py-20">
-            <p className="text-slate-500">아직 수집한 코스가 없습니다</p>
+            <p className="text-slate-500">{isEnglish ? 'No collected courses yet.' : '아직 수집한 코스가 없습니다'}</p>
             <Link href="/courses">
-              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">코스 보러가기</Button>
+              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">{isEnglish ? 'Browse Courses' : '코스 보러가기'}</Button>
             </Link>
           </div>
         ) : (
@@ -299,18 +307,18 @@ export default function CollectionPage() {
                 size="sm"
                 variant={viewType === 'collected' ? 'default' : 'outline'}
                 className="rg-touch rg-press rounded-full"
-                onClick={() => setViewType('collected')}
-              >
-                수집한 코스
-              </Button>
+                  onClick={() => setViewType('collected')}
+                >
+                  {isEnglish ? 'Collected Courses' : '수집한 코스'}
+                </Button>
               <Button
                 size="sm"
                 variant={viewType === 'created' ? 'default' : 'outline'}
                 className="rg-touch rg-press rounded-full"
                 onClick={() => setViewType('created')}
-              >
-                제작한 코스
-              </Button>
+                >
+                  {isEnglish ? 'Created Courses' : '제작한 코스'}
+                </Button>
             </div>
             <div className="rg-chip-bar rg-scroll-row">
               <Button
@@ -319,7 +327,7 @@ export default function CollectionPage() {
                 className="rg-touch rg-press rounded-full"
                 onClick={() => setSort('recent')}
               >
-                최신순
+                {isEnglish ? 'Latest' : '최신순'}
               </Button>
               <Button
                 size="sm"
@@ -327,7 +335,7 @@ export default function CollectionPage() {
                 className="rg-touch rg-press rounded-full"
                 onClick={() => setSort('count')}
               >
-                {viewType === 'created' ? '인기순' : '수집 많은 순'}
+                {viewType === 'created' ? (isEnglish ? 'Most Liked' : '인기순') : (isEnglish ? 'Most Collected' : '수집 많은 순')}
               </Button>
               <select
                 value={selectedTag}
@@ -336,7 +344,7 @@ export default function CollectionPage() {
               >
                 {availableTags.map((tag) => (
                   <option key={tag} value={tag}>
-                    {tag === 'ALL' ? '전체 태그' : `#${tag}`}
+                    {tag === 'ALL' ? (isEnglish ? 'All Tags' : '전체 태그') : `#${tag}`}
                   </option>
                 ))}
               </select>
@@ -346,7 +354,7 @@ export default function CollectionPage() {
 
             {selectedCourseIds.length > 0 && (
               <div className="flex flex-col gap-2 rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-sky-700">{selectedCourseIds.length}개 코스 선택됨</p>
+                <p className="text-xs text-sky-700">{isEnglish ? `${selectedCourseIds.length} selected` : `${selectedCourseIds.length}개 코스 선택됨`}</p>
                 <div className="flex items-center gap-2 sm:justify-end">
                   <Button
                     size="sm"
@@ -354,14 +362,14 @@ export default function CollectionPage() {
                     className="rounded-full"
                     onClick={() => setSelectedCourseIds([])}
                   >
-                    선택 해제
+                    {isEnglish ? 'Clear Selection' : '선택 해제'}
                   </Button>
                   <Button
                     size="sm"
                     className="rounded-full"
                     onClick={() => setIsRoutePreviewOpen(true)}
                   >
-                    동선 함께 보기
+                    {isEnglish ? 'Preview Together' : '동선 함께 보기'}
                   </Button>
                 </div>
               </div>
@@ -383,7 +391,7 @@ export default function CollectionPage() {
                 </div>
                 <div className="mt-3 flex justify-end">
                   <Button size="sm" variant="outline" className="rounded-full" onClick={() => setIsRoutePreviewOpen(false)}>
-                    닫기
+                    {isEnglish ? 'Close' : '닫기'}
                   </Button>
                 </div>
               </div>
@@ -391,24 +399,18 @@ export default function CollectionPage() {
             <div className="rg-stagger grid grid-cols-1 gap-4 sm:grid-cols-2">
               {sortedCourses.length === 0 ? (
                 <div className="col-span-2 rounded-2xl border border-white/70 bg-white/80 py-10 text-center text-sm text-slate-500">
-                  {viewType === 'created' ? '아직 제작한 코스가 없습니다' : '태그 조건에 맞는 수집 코스가 없습니다'}
+                  {viewType === 'created'
+                    ? (isEnglish ? 'No created courses yet.' : '아직 제작한 코스가 없습니다')
+                    : (isEnglish ? 'No collected courses match this tag.' : '태그 조건에 맞는 수집 코스가 없습니다')}
                 </div>
               ) : sortedCourses.map((course) => {
                 const isSelected = selectedCourseIds.includes(course.id);
 
                 return (
-                <div
+                <Link
                   key={course.id}
-                  role="button"
-                  tabIndex={0}
-                  className="w-full text-left"
-                  onClick={() => router.push(`/courses/${course.id}`)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      router.push(`/courses/${course.id}`);
-                    }
-                  }}
+                  href={`/courses/${course.id}`}
+                  className="block w-full text-left"
                 >
                   <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
                     <div className="relative h-28 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
@@ -425,7 +427,7 @@ export default function CollectionPage() {
                           ));
                         }}
                       >
-                        {isSelected ? '선택' : '보기'}
+                        {isSelected ? (isEnglish ? 'On' : '선택') : (isEnglish ? 'View' : '보기')}
                       </button>
                       <Image
                         src={(() => {
@@ -454,24 +456,24 @@ export default function CollectionPage() {
                       </div>
                       <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
                         {viewType === 'created' ? (
-                          <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3 w-3 shrink-0" />내 제작</span>
+                          <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3 w-3 shrink-0" />{isEnglish ? 'My Course' : '내 제작'}</span>
                         ) : (
-                          <span className="truncate">{course.count ?? 0}회 수집</span>
+                          <span className="truncate">{course.count ?? 0}{isEnglish ? ' collected' : '회 수집'}</span>
                         )}
                         <span className="shrink-0">{course.totalDistance.toFixed(1)}km</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge className={`${difficultyColors[course.difficulty]} rounded-full text-xs px-2`}
                       >
-                          {difficultyLabels[course.difficulty]}
+                          {difficultyLabel(course.difficulty)}
                         </Badge>
                         {viewType === 'created' && course.status === 'HIDDEN' ? (
-                          <Badge variant="outline" className="rounded-full text-[10px]">미공개</Badge>
+                          <Badge variant="outline" className="rounded-full text-[10px]">{isEnglish ? 'Private' : '미공개'}</Badge>
                         ) : null}
                       </div>
                     </CardContent>
                   </Card>
-                </div>
+                </Link>
               );})}
             </div>
           </div>

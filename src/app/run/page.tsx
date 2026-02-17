@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { ChevronLeft, LocateFixed, Pause, Play, Square } from 'lucide-react';
 import { trpc } from '@/components/providers/TRPCProvider';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
 import {
   loadMapSdk,
   type MapLike,
@@ -82,6 +83,8 @@ function RunPageContent() {
   const searchParams = useSearchParams();
   const courseId = searchParams.get('courseId');
   const router = useRouter();
+  const { locale } = useLocale();
+  const isEnglish = locale === 'en';
 
   const collectMutation = trpc.collection.collect.useMutation();
   const freeRunMutation = trpc.runSession.createFreeRun.useMutation();
@@ -117,13 +120,13 @@ function RunPageContent() {
     return R * c;
   };
 
-  const toLatLng = (lat: number, lng: number) => {
+  const toLatLng = useMemo(() => (lat: number, lng: number) => {
     const sdk = mapSdkRef.current;
     if (!sdk) return null;
     return new sdk.LatLng(lat, lng);
-  };
+  }, []);
 
-  const updateCurrentMarker = (latitude: number, longitude: number) => {
+  const updateCurrentMarker = useMemo(() => (latitude: number, longitude: number) => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     const position = toLatLng(latitude, longitude);
@@ -150,9 +153,9 @@ function RunPageContent() {
     if (!isTrackingRef.current || isAutoCenterRef.current) {
       mapInstance.setCenter(position);
     }
-  };
+  }, [profileSummary?.user.image, toLatLng]);
 
-  const fitMapToCourse = (points: { lat: number; lng: number }[]) => {
+  const fitMapToCourse = useMemo(() => (points: { lat: number; lng: number }[]) => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!sdk || !mapInstance || points.length < 2) return;
@@ -163,7 +166,7 @@ function RunPageContent() {
       bounds.extend(latLng);
     });
     mapInstance.fitBounds(bounds, { top: 150, right: 40, bottom: 220, left: 40 });
-  };
+  }, []);
 
   const handleRecenter = () => {
     const lastPosition = lastPositionRef.current;
@@ -177,19 +180,19 @@ function RunPageContent() {
     }
   };
 
-  const clearRunPath = () => {
+  const clearRunPath = useMemo(() => () => {
     runPathOutlineRef.current?.setMap(null);
     runPathMainRef.current?.setMap(null);
     runPathOutlineRef.current = null;
     runPathMainRef.current = null;
-  };
+  }, []);
 
-  const clearCoursePath = () => {
+  const clearCoursePath = useMemo(() => () => {
     coursePathOutlineRef.current?.setMap(null);
     coursePathMainRef.current?.setMap(null);
     coursePathOutlineRef.current = null;
     coursePathMainRef.current = null;
-  };
+  }, []);
 
   const updatePathLine = (points: GPSPoint[]) => {
     const sdk = mapSdkRef.current;
@@ -230,7 +233,7 @@ function RunPageContent() {
     }
   };
 
-  const updateCourseLine = (points: { lat: number; lng: number }[]) => {
+  const updateCourseLine = useMemo(() => (points: { lat: number; lng: number }[]) => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!sdk || !mapInstance || points.length < 2) {
@@ -269,7 +272,7 @@ function RunPageContent() {
         clickable: false,
       });
     }
-  };
+  }, [clearCoursePath]);
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
@@ -328,7 +331,7 @@ function RunPageContent() {
         }
       })
       .catch(() => {
-        toast.error('지도를 불러오지 못했습니다');
+        toast.error(isEnglish ? 'Failed to load map.' : '지도를 불러오지 못했습니다');
       });
 
     return () => {
@@ -349,7 +352,7 @@ function RunPageContent() {
       map.current?.destroy();
       map.current = null;
     };
-  }, []);
+  }, [clearCoursePath, clearRunPath, fitMapToCourse, isEnglish, updateCourseLine, updateCurrentMarker]);
 
   useEffect(() => {
     if (!mapLoadedRef.current || !courseWaypoints.length) return;
@@ -357,7 +360,7 @@ function RunPageContent() {
     if (!isTrackingRef.current && !hasPath && !hasInitialLocationRef.current) {
       fitMapToCourse(courseWaypoints);
     }
-  }, [courseWaypoints, hasPath]);
+  }, [courseWaypoints, fitMapToCourse, hasPath, updateCourseLine]);
 
   const handleNewPoint = (latitude: number, longitude: number, accuracy: number, timestamp: number) => {
     setCurrentAccuracy(accuracy);
@@ -415,7 +418,7 @@ function RunPageContent() {
 
   const startTracking = () => {
     if (!navigator.geolocation) {
-      toast.error('GPS를 지원하지 않는 브라우저입니다');
+      toast.error(isEnglish ? 'This browser does not support GPS.' : 'GPS를 지원하지 않는 브라우저입니다');
       return;
     }
 
@@ -440,7 +443,7 @@ function RunPageContent() {
         handleNewPoint(latitude, longitude, accuracy, position.timestamp);
       },
       (err) => {
-        toast.error(`GPS 오류: ${err.message}`);
+        toast.error(isEnglish ? `GPS error: ${err.message}` : `GPS 오류: ${err.message}`);
         stopTracking();
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -493,7 +496,7 @@ function RunPageContent() {
     }
 
     if (courseId && pathRef.current.length < 2) {
-      const reason = encodeURIComponent('경로 데이터가 부족합니다');
+      const reason = encodeURIComponent(isEnglish ? 'Not enough path data.' : '경로 데이터가 부족합니다');
       router.push(`/run/result?courseId=${courseId}&isCollected=false&matchRate=0&reason=${reason}`);
       return;
     }
@@ -520,7 +523,7 @@ function RunPageContent() {
     }
 
     if (!courseId) {
-      const reason = encodeURIComponent('코스 정보가 없습니다');
+      const reason = encodeURIComponent(isEnglish ? 'No course information available.' : '코스 정보가 없습니다');
       router.push(`/run/result?isCollected=false&matchRate=0&reason=${reason}`);
     }
   };
@@ -549,7 +552,7 @@ function RunPageContent() {
 
   const resumeTracking = () => {
     if (!navigator.geolocation) {
-      toast.error('GPS를 지원하지 않는 브라우저입니다');
+      toast.error(isEnglish ? 'This browser does not support GPS.' : 'GPS를 지원하지 않는 브라우저입니다');
       return;
     }
 
@@ -563,7 +566,7 @@ function RunPageContent() {
         handleNewPoint(latitude, longitude, accuracy, position.timestamp);
       },
       (err) => {
-        toast.error(`GPS 오류: ${err.message}`);
+        toast.error(isEnglish ? `GPS error: ${err.message}` : `GPS 오류: ${err.message}`);
         stopTracking();
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -620,7 +623,7 @@ function RunPageContent() {
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <div className="text-2xl font-bold text-primary">{formatDuration(duration)}</div>
-              <div className="text-xs text-slate-600">시간</div>
+              <div className="text-xs text-slate-600">{isEnglish ? 'Time' : '시간'}</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-primary">{(distance / 1000).toFixed(2)}</div>
@@ -628,24 +631,24 @@ function RunPageContent() {
             </div>
             <div>
               <div className="text-2xl font-bold text-primary">{formatPace(duration, distance / 1000)}</div>
-              <div className="text-xs text-slate-600">페이스</div>
+              <div className="text-xs text-slate-600">{isEnglish ? 'Pace' : '페이스'}</div>
             </div>
           </div>
           <div className="mt-3 text-center text-xs text-slate-500">
-            정확도 {currentAccuracy ? `±${Math.round(currentAccuracy)}m` : '-'}
+            {isEnglish ? 'Accuracy' : '정확도'} {currentAccuracy ? `±${Math.round(currentAccuracy)}m` : '-'}
           </div>
         </div>
 
         {course && courseWaypoints.length >= 2 ? (
           <div className="absolute top-36 left-4 right-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/90 px-4 py-2 text-xs text-emerald-800 shadow-sm backdrop-blur">
-            목표 코스: <span className="font-semibold">{course.title}</span> · {(course.totalDistance ?? 0).toFixed(1)}km
+            {isEnglish ? 'Target course' : '목표 코스'}: <span className="font-semibold">{course.title}</span> · {(course.totalDistance ?? 0).toFixed(1)}km
           </div>
         ) : null}
 
         {isTracking && !isAutoCenterEnabled ? (
           <Button
             type="button"
-            aria-label="내 현재 위치로 이동"
+            aria-label={isEnglish ? 'Move to my current location' : '내 현재 위치로 이동'}
             className={`${LOCATION_FAB_BASE_CLASS} ${LOCATION_FAB_TRANSITION_CLASS}`}
             style={{ bottom: getLocationFabBottom(144) }}
             onClick={handleRecenter}
@@ -664,7 +667,7 @@ function RunPageContent() {
                 variant="ghost"
                 size="icon"
                 className="rg-touch-icon rg-press h-16 w-16 rounded-2xl border border-white/80 bg-white/90 text-slate-700 shadow-md"
-                aria-label="홈으로 돌아가기"
+                aria-label={isEnglish ? 'Back to home' : '홈으로 돌아가기'}
                 onClick={() => router.replace('/')}
               >
                 <ChevronLeft className="h-5 w-5" />
@@ -676,7 +679,7 @@ function RunPageContent() {
               onClick={isPaused && hasPath ? resumeTracking : startTracking}
             >
               <Play className="w-6 h-6 mr-2" />
-              {isPaused && hasPath ? '러닝 재개' : '러닝 시작'}
+              {isPaused && hasPath ? (isEnglish ? 'Resume Run' : '러닝 재개') : (isEnglish ? 'Start Run' : '러닝 시작')}
             </Button>
           </div>
         ) : (
@@ -688,7 +691,7 @@ function RunPageContent() {
               onClick={pauseTracking}
             >
               <Pause className="w-6 h-6 mr-2" />
-              일시정지
+              {isEnglish ? 'Pause' : '일시정지'}
             </Button>
             <Button
               size="lg"
@@ -697,7 +700,7 @@ function RunPageContent() {
               onClick={requestStopTracking}
             >
               <Square className="w-6 h-6 mr-2" />
-              종료
+              {isEnglish ? 'Stop' : '종료'}
             </Button>
           </div>
         )}
@@ -706,9 +709,9 @@ function RunPageContent() {
       <Dialog open={isStopDialogOpen} onOpenChange={setIsStopDialogOpen}>
         <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
           <DialogHeader>
-            <DialogTitle className="text-slate-900">러닝을 종료할까요?</DialogTitle>
+            <DialogTitle className="text-slate-900">{isEnglish ? 'Stop this run?' : '러닝을 종료할까요?'}</DialogTitle>
             <DialogDescription className="text-slate-600">
-              현재 기록을 저장하고 결과 화면으로 이동합니다.
+              {isEnglish ? 'Your current record will be saved and you will move to the result screen.' : '현재 기록을 저장하고 결과 화면으로 이동합니다.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -717,7 +720,7 @@ function RunPageContent() {
               className="rounded-full"
               onClick={() => setIsStopDialogOpen(false)}
             >
-              계속 달리기
+              {isEnglish ? 'Keep Running' : '계속 달리기'}
             </Button>
             <Button
               variant="destructive"
@@ -727,7 +730,7 @@ function RunPageContent() {
                 stopTracking();
               }}
             >
-              종료하고 저장
+              {isEnglish ? 'Stop and Save' : '종료하고 저장'}
             </Button>
           </DialogFooter>
         </DialogContent>

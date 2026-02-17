@@ -234,6 +234,29 @@ type AdapterListener = {
 
 const toLatLngLike = (latLng: MapLatLng): LngLatLike => [latLng.lng(), latLng.lat()];
 
+const createMapboxRasterStyle = (mapboxToken: string) => ({
+  version: 8 as const,
+  sources: {
+    'mapbox-raster-tiles': {
+      type: 'raster' as const,
+      tiles: [
+        `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}?access_token=${mapboxToken}`,
+      ],
+      tileSize: 256,
+      attribution: '© Mapbox © OpenStreetMap',
+    },
+  },
+  layers: [
+    {
+      id: 'mapbox-raster-layer',
+      type: 'raster' as const,
+      source: 'mapbox-raster-tiles',
+      minzoom: 0,
+      maxzoom: 22,
+    },
+  ],
+});
+
 const createMapSdk = (mapboxToken: string): MapSdkApi => {
   const Event: MapEventApi = {
     addListener(target: object, eventName: string, handler: (...args: unknown[]) => void) {
@@ -241,7 +264,7 @@ const createMapSdk = (mapboxToken: string): MapSdkApi => {
       if (target instanceof AdapterMap) {
         const mapTarget = target.getMapLibreMap();
         const wrapped = (...args: unknown[]) => {
-          if (resolvedEvent === 'click' && args[0]) {
+          if (args[0] && typeof args[0] === 'object' && 'lngLat' in (args[0] as object)) {
             const event = args[0] as MapMouseEvent;
             handler({ coord: new AdapterLatLng(event.lngLat.lat, event.lngLat.lng), domEvent: event.originalEvent });
             return;
@@ -274,7 +297,7 @@ const createMapSdk = (mapboxToken: string): MapSdkApi => {
       constructor(container: HTMLElement, options: { center: MapLatLng; zoom: number }) {
         const map = new maplibregl.Map({
           container,
-          style: `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${mapboxToken}`,
+          style: createMapboxRasterStyle(mapboxToken),
           center: toLatLngLike(options.center),
           zoom: options.zoom,
         });

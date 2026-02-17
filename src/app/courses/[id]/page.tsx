@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/ui/error-state';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { ChevronLeft, Heart, MapPin, Clock, Trophy, User, Play, Trash2 } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 import { loadMapSdk, type MapLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
@@ -51,6 +52,13 @@ const difficultyLabels: Record<Difficulty, string> = {
   HARD: '어려움',
 };
 
+const difficultyLabel = (difficulty: Difficulty, isEnglish: boolean) => {
+  if (!isEnglish) return difficultyLabels[difficulty];
+  if (difficulty === 'EASY') return 'Easy';
+  if (difficulty === 'MEDIUM') return 'Medium';
+  return 'Hard';
+};
+
 const difficultyColors: Record<Difficulty, string> = {
   EASY: 'bg-green-100 text-green-700',
   MEDIUM: 'bg-yellow-100 text-yellow-700',
@@ -63,6 +71,8 @@ interface CourseDetailPageProps {
 
 export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   const { id } = use(params);
+  const { locale } = useLocale();
+  const isEnglish = locale === 'en';
   const router = useRouter();
   const { data: session } = useSession();
   const { data: course, isLoading, isError } = trpc.course.byId.useQuery({ id });
@@ -78,7 +88,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     },
     onError: (error) => {
       if (error.data?.code === 'UNAUTHORIZED') {
-        toast.error('로그인이 필요합니다');
+        toast.error(isEnglish ? 'Sign-in is required.' : '로그인이 필요합니다');
       }
     },
   });
@@ -86,8 +96,8 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     onSuccess: (result) => {
       toast.success(
         result.deletedCompletely
-          ? '코스를 삭제했습니다'
-          : '수집 기록이 있어 코스를 삭제 상태로 전환했습니다'
+          ? (isEnglish ? 'Course deleted.' : '코스를 삭제했습니다')
+          : (isEnglish ? 'Course was hidden because collection records exist.' : '수집 기록이 있어 코스를 삭제 상태로 전환했습니다')
       );
       void utils.course.byId.invalidate({ id });
       void utils.course.list.invalidate();
@@ -99,14 +109,14 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     },
     onError: (error) => {
       if (error.data?.code === 'UNAUTHORIZED') {
-        toast.error('로그인이 필요합니다');
+        toast.error(isEnglish ? 'Sign-in is required.' : '로그인이 필요합니다');
         return;
       }
       if (error.data?.code === 'FORBIDDEN') {
-        toast.error('내가 만든 코스만 삭제할 수 있습니다');
+        toast.error(isEnglish ? 'Only your own courses can be deleted.' : '내가 만든 코스만 삭제할 수 있습니다');
         return;
       }
-      toast.error(error.message || '코스를 삭제하지 못했습니다');
+      toast.error(error.message || (isEnglish ? 'Failed to delete course.' : '코스를 삭제하지 못했습니다'));
     },
   });
 
@@ -143,7 +153,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         });
       })
       .catch(() => {
-        toast.error('지도를 불러오지 못했습니다');
+        toast.error(isEnglish ? 'Failed to load map.' : '지도를 불러오지 못했습니다');
       });
 
     return () => {
@@ -155,7 +165,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       mapRef.current?.destroy();
       mapRef.current = null;
     };
-  }, [courseDetail]);
+  }, [courseDetail, isEnglish]);
 
   useEffect(() => {
     if (!courseDetail || !mapRef.current || !mapSdkRef.current) {
@@ -227,9 +237,9 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     return (
       <div className="rg-page flex items-center justify-center">
         <ErrorState
-          title="코스를 불러오지 못했습니다"
-          message="잠시 후 다시 시도해주세요"
-          actionLabel="도감으로"
+          title={isEnglish ? 'Failed to load course' : '코스를 불러오지 못했습니다'}
+          message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
+          actionLabel={isEnglish ? 'To Collection' : '도감으로'}
           onAction={() => router.replace('/collection')}
         />
       </div>
@@ -240,9 +250,9 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     return (
       <div className="rg-page flex items-center justify-center">
         <ErrorState
-          title="코스를 찾을 수 없습니다"
-          message="다른 코스를 찾아보세요"
-          actionLabel="도감으로"
+          title={isEnglish ? 'Course not found' : '코스를 찾을 수 없습니다'}
+          message={isEnglish ? 'Try a different course.' : '다른 코스를 찾아보세요'}
+          actionLabel={isEnglish ? 'To Collection' : '도감으로'}
           onAction={() => router.replace('/collection')}
         />
       </div>
@@ -281,7 +291,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{courseDetail.title}</h1>
             <div className="flex items-center gap-2 mt-2 text-sm text-slate-600">
               <User className="w-4 h-4" />
-              <span>{courseDetail.creator.name || '익명'}</span>
+              <span>{courseDetail.creator.name || (isEnglish ? 'Anonymous' : '익명')}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -293,14 +303,16 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
                 disabled={deleteMutation.isPending}
                 onClick={(event) => {
                   event.preventDefault();
-                  if (!window.confirm('이 코스를 삭제할까요? 삭제 후 복구할 수 없습니다.')) {
+                  if (!window.confirm(isEnglish
+                    ? 'Delete this course? This action cannot be undone.'
+                    : '이 코스를 삭제할까요? 삭제 후 복구할 수 없습니다.')) {
                     return;
                   }
                   deleteMutation.mutate({ id });
                 }}
               >
                 <Trash2 className="w-4 h-4 mr-1" />
-                {deleteMutation.isPending ? '삭제 중...' : '삭제'}
+                {deleteMutation.isPending ? (isEnglish ? 'Deleting...' : '삭제 중...') : (isEnglish ? 'Delete' : '삭제')}
               </Button>
             )}
             <Button
@@ -324,17 +336,17 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
               <div>
                 <MapPin className="w-5 h-5 mx-auto mb-1 text-slate-700" />
                 <div className="text-lg font-semibold text-slate-900">{courseDetail.totalDistance.toFixed(1)}km</div>
-                <div className="text-xs uppercase tracking-wide text-slate-500">거리</div>
+                <div className="text-xs uppercase tracking-wide text-slate-500">{isEnglish ? 'Distance' : '거리'}</div>
               </div>
               <div>
                 <Clock className="w-5 h-5 mx-auto mb-1 text-slate-700" />
-                <div className="text-lg font-semibold text-slate-900">{courseDetail.estimatedTime}분</div>
-                <div className="text-xs uppercase tracking-wide text-slate-500">예상 시간</div>
+                <div className="text-lg font-semibold text-slate-900">{courseDetail.estimatedTime}{isEnglish ? ' min' : '분'}</div>
+                <div className="text-xs uppercase tracking-wide text-slate-500">{isEnglish ? 'Est. Time' : '예상 시간'}</div>
               </div>
               <div>
                 <Trophy className="w-5 h-5 mx-auto mb-1 text-slate-700" />
                 <div className="text-lg font-semibold text-slate-900">{courseDetail.collectCount}</div>
-                <div className="text-xs uppercase tracking-wide text-slate-500">수집</div>
+                <div className="text-xs uppercase tracking-wide text-slate-500">{isEnglish ? 'Collected' : '수집'}</div>
               </div>
             </div>
           </CardContent>
@@ -343,7 +355,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         {/* Difficulty & Tags */}
         <div className="flex flex-wrap items-center gap-2">
           <Badge className={`${difficultyColors[courseDetail.difficulty]} rounded-full text-sm px-3 py-1`}>
-            {difficultyLabels[courseDetail.difficulty]}
+            {difficultyLabel(courseDetail.difficulty, isEnglish)}
           </Badge>
           {courseDetail.tags.map((tag) => (
             <Badge key={tag} variant="secondary" className="rounded-full text-sm px-3 py-1">
@@ -356,7 +368,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         {courseDetail.description && (
           <Card className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_16px_34px_-26px_rgba(15,23,42,0.55)]">
             <CardContent className="p-4">
-              <h3 className="font-semibold mb-2">코스 설명</h3>
+              <h3 className="font-semibold mb-2">{isEnglish ? 'Course Description' : '코스 설명'}</h3>
               <p className="text-slate-600 whitespace-pre-wrap">{courseDetail.description}</p>
             </CardContent>
           </Card>
@@ -370,7 +382,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         <Link href={`/run?courseId=${courseDetail.id}`}>
           <Button size="lg" className="rg-touch w-full h-14 text-lg rounded-2xl">
             <Play className="w-5 h-5 mr-2" />
-            이 코스로 러닝 시작
+            {isEnglish ? 'Start Run With This Course' : '이 코스로 러닝 시작'}
           </Button>
         </Link>
       </div>

@@ -8,28 +8,32 @@ import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
 import { AdSlot } from '@/app/components/ads/AdSlot';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { ChevronLeft } from 'lucide-react';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 
-const tabs = [
-  { id: 'popular', label: '인기코스' },
-  { id: 'collector', label: '수집왕' },
-  { id: 'creator', label: '제작왕' },
-  { id: 'course', label: '코스별' },
-] as const;
-
-const periods = [
-  { id: 'WEEKLY', label: '주간' },
-  { id: 'MONTHLY', label: '월간' },
-  { id: 'ALL_TIME', label: '전체' },
-] as const;
+const tabIds = ['popular', 'collector', 'creator', 'course'] as const;
+const periodIds = ['WEEKLY', 'MONTHLY', 'ALL_TIME'] as const;
 
 export default function RankingsPage() {
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['id']>('popular');
-  const [period, setPeriod] = useState<(typeof periods)[number]['id']>('ALL_TIME');
+  const { locale } = useLocale();
+  const isEnglish = locale === 'en';
+  const [activeTab, setActiveTab] = useState<(typeof tabIds)[number]>('popular');
+  const [period, setPeriod] = useState<(typeof periodIds)[number]>('ALL_TIME');
   const { data, isError, refetch } = trpc.ranking.list.useQuery({ period });
   const maxPathPoints = 50;
+  const tabs = [
+    { id: 'popular', label: isEnglish ? 'Popular Courses' : '인기코스' },
+    { id: 'collector', label: isEnglish ? 'Collectors' : '수집왕' },
+    { id: 'creator', label: isEnglish ? 'Creators' : '제작왕' },
+    { id: 'course', label: isEnglish ? 'By Course' : '코스별' },
+  ] as const;
+  const periods = [
+    { id: 'WEEKLY', label: isEnglish ? 'Weekly' : '주간' },
+    { id: 'MONTHLY', label: isEnglish ? 'Monthly' : '월간' },
+    { id: 'ALL_TIME', label: isEnglish ? 'All Time' : '전체' },
+  ] as const;
 
   const rankLabel = (index: number) => {
     if (index === 0) return '🥇';
@@ -64,7 +68,7 @@ export default function RankingsPage() {
               <ChevronLeft className="w-6 h-6" />
             </Button>
           </Link>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">랭킹</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'Rankings' : '랭킹'}</h1>
         </div>
       </header>
 
@@ -101,9 +105,9 @@ export default function RankingsPage() {
 
         {isError && (
           <ErrorState
-            title="랭킹 데이터를 불러오지 못했습니다"
-            message="네트워크 상태를 확인해주세요"
-            actionLabel="다시 시도"
+            title={isEnglish ? 'Failed to load ranking data' : '랭킹 데이터를 불러오지 못했습니다'}
+            message={isEnglish ? 'Please check your network connection.' : '네트워크 상태를 확인해주세요'}
+            actionLabel={isEnglish ? 'Retry' : '다시 시도'}
             onAction={() => refetch()}
           />
         )}
@@ -124,7 +128,7 @@ export default function RankingsPage() {
                                 : [];
                               return getPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
                             })()}
-                            alt={`${course.title} 지도`}
+                            alt={isEnglish ? `${course.title} map` : `${course.title} 지도`}
                             fill
                             sizes="112px"
                             className="object-cover"
@@ -145,7 +149,7 @@ export default function RankingsPage() {
                 </Link>
               ))
             ) : (
-              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+              <div className="text-center text-slate-500 py-12">{isEnglish ? 'No ranking data.' : '랭킹 데이터가 없습니다'}</div>
             )}
           </div>
         )}
@@ -157,16 +161,16 @@ export default function RankingsPage() {
                   <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
                     <CardContent className="p-4 flex items-center justify-between gap-3">
                       <div className="min-w-0 font-medium">
-                        <span className="truncate align-middle">{rankLabel(index)} {ranking.name ?? '익명'}</span>
+                        <span className="truncate align-middle">{rankLabel(index)} {ranking.name ?? (isEnglish ? 'Anonymous' : '익명')}</span>
                         <span className="ml-2">{getCollectorTier(ranking.collectedCount).icon}</span>
-                        <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">탐험가</span>
+                        <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">{isEnglish ? 'Collector' : '탐험가'}</span>
                       </div>
-                      <div className="shrink-0 text-sm text-slate-500">{ranking.score}개</div>
+                      <div className="shrink-0 text-sm text-slate-500">{ranking.score}{isEnglish ? '' : '개'}</div>
                     </CardContent>
                   </Card>
               ))
             ) : (
-              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+              <div className="text-center text-slate-500 py-12">{isEnglish ? 'No ranking data.' : '랭킹 데이터가 없습니다'}</div>
             )}
           </div>
         )}
@@ -178,16 +182,16 @@ export default function RankingsPage() {
                   <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
                     <CardContent className="p-4 flex items-center justify-between gap-3">
                       <div className="min-w-0 font-medium">
-                        <span className="truncate align-middle">{rankLabel(index)} {ranking.name ?? '익명'}</span>
+                        <span className="truncate align-middle">{rankLabel(index)} {ranking.name ?? (isEnglish ? 'Anonymous' : '익명')}</span>
                         <span className="ml-2">{getCreatorTier(ranking.score).icon}</span>
-                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">설계자</span>
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{isEnglish ? 'Creator' : '설계자'}</span>
                       </div>
                       <div className="shrink-0 text-sm text-slate-500">{ranking.score}❤️</div>
                     </CardContent>
                   </Card>
               ))
             ) : (
-              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+              <div className="text-center text-slate-500 py-12">{isEnglish ? 'No ranking data.' : '랭킹 데이터가 없습니다'}</div>
             )}
           </div>
         )}
@@ -202,13 +206,13 @@ export default function RankingsPage() {
                       <div className="min-w-0">
                         <div className="truncate font-medium">{rankLabel(index)} {ranking.courseTitle}</div>
                       </div>
-                      <div className="shrink-0 text-sm text-slate-500">{ranking.runCount}회</div>
+                      <div className="shrink-0 text-sm text-slate-500">{ranking.runCount}{isEnglish ? ' runs' : '회'}</div>
                     </CardContent>
                   </Card>
                 </Link>
               ))
             ) : (
-              <div className="text-center text-slate-500 py-12">랭킹 데이터가 없습니다</div>
+              <div className="text-center text-slate-500 py-12">{isEnglish ? 'No ranking data.' : '랭킹 데이터가 없습니다'}</div>
             )}
           </div>
         )}

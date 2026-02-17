@@ -15,10 +15,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AdSlot } from '@/app/components/ads/AdSlot';
+import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { Heart, LocateFixed, MapPin } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 
-const difficultyLabels: Record<Difficulty, string> = {
+const difficultyLabelsKo: Record<Difficulty, string> = {
   EASY: '쉬움',
   MEDIUM: '보통',
   HARD: '어려움',
@@ -38,7 +39,7 @@ const DEFAULT_CENTER = {
 const INITIAL_PANEL_HEIGHT = 180;
 const ONBOARDING_STORAGE_KEY = 'running-go:onboarding:v1';
 
-const ONBOARDING_STEPS = [
+const ONBOARDING_STEPS_KO = [
   {
     title: '러닝고 시작 가이드',
     description: '지도를 움직이며 주변 코스를 찾고, 원하는 코스를 바로 러닝에 연결할 수 있어요.',
@@ -54,6 +55,25 @@ const ONBOARDING_STEPS = [
   {
     title: '바로 러닝 시작',
     description: '코스를 선택하면 상단의 버튼으로 즉시 러닝을 시작할 수 있어요. 즐겁게 달려보세요!',
+  },
+] as const;
+
+const ONBOARDING_STEPS_EN = [
+  {
+    title: 'Running Go Quick Guide',
+    description: 'Move the map to find nearby courses and jump straight into a run.',
+  },
+  {
+    title: 'Explore Courses',
+    description: 'Tap a marker or a list item below to preview the course path.',
+  },
+  {
+    title: 'Sorting and Location',
+    description: 'Change sorting and use the location button to quickly return to your position.',
+  },
+  {
+    title: 'Start Running Fast',
+    description: 'Select a course and start your run immediately from the top button.',
   },
 ] as const;
 
@@ -108,6 +128,8 @@ const calculateDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: num
 };
 
 export default function CoursesPage() {
+  const { locale } = useLocale();
+  const isEnglish = locale === 'en';
   const [viewMode] = useState<'list' | 'map'>('map');
   const [listSort, setListSort] = useState<CourseListSort>('LATEST');
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -123,6 +145,7 @@ export default function CoursesPage() {
   });
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
+  const onboardingSteps = isEnglish ? ONBOARDING_STEPS_EN : ONBOARDING_STEPS_KO;
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const mapRef = useRef<MapLike | null>(null);
@@ -156,6 +179,12 @@ export default function CoursesPage() {
     { enabled: listSort !== 'NEAREST' || Boolean(userLocation) }
   );
   const maxPathPoints = 60;
+  const difficultyLabel = (difficulty: Difficulty) => {
+    if (!isEnglish) return difficultyLabelsKo[difficulty];
+    if (difficulty === 'EASY') return 'Easy';
+    if (difficulty === 'MEDIUM') return 'Medium';
+    return 'Hard';
+  };
 
   const { data: nearbyCourses, isLoading: isNearbyLoading, isError: isNearbyError, refetch: refetchNearby } = trpc.course.nearby.useQuery(
     { lat: nearbySearch.lat, lng: nearbySearch.lng, radiusKm: nearbySearch.radiusKm, limit: 30 },
@@ -323,7 +352,7 @@ export default function CoursesPage() {
 
     if (!navigator.geolocation) {
       queueMicrotask(() => {
-        setLocationError('현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
+        setLocationError(isEnglish ? 'Unable to get current location. Showing default location.' : '현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
         setUserLocation(DEFAULT_CENTER);
       });
       return;
@@ -338,7 +367,7 @@ export default function CoursesPage() {
         });
       },
       () => {
-        setLocationError('현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
+        setLocationError(isEnglish ? 'Unable to get current location. Showing default location.' : '현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
         setUserLocation(DEFAULT_CENTER);
       },
       {
@@ -347,12 +376,12 @@ export default function CoursesPage() {
         maximumAge: 0,
       }
     );
-  }, [listSort, userLocation, viewMode]);
+  }, [isEnglish, listSort, userLocation, viewMode]);
 
   const toLatLng = (lat: number, lng: number) => {
     const sdk = mapSdkRef.current;
     if (!sdk) {
-      throw new Error('네이버 지도 SDK가 준비되지 않았습니다');
+      throw new Error(isEnglish ? 'Map SDK is not ready yet.' : '네이버 지도 SDK가 준비되지 않았습니다');
     }
     return new sdk.LatLng(lat, lng);
   };
@@ -457,7 +486,7 @@ export default function CoursesPage() {
         scheduleNearbySearchSync(true);
       })
       .catch(() => {
-        setLocationError('지도를 불러오지 못했습니다. 잠시 후 다시 시도해주세요');
+        setLocationError(isEnglish ? 'Failed to load map. Please try again shortly.' : '지도를 불러오지 못했습니다. 잠시 후 다시 시도해주세요');
       });
 
     return () => {
@@ -479,7 +508,7 @@ export default function CoursesPage() {
       mapRef.current?.destroy();
       mapRef.current = null;
     };
-  }, [viewMode]);
+  }, [isEnglish, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current || !userLocation) return;
@@ -618,8 +647,8 @@ export default function CoursesPage() {
   const locationButtonBottom = panelHeight + (selectedCourse ? 72 : 12);
 
   const getDistanceLabel = (courseLat: number, courseLng: number) => {
-    if (locationError) return '위치 권한 필요';
-    if (!userLocation) return '거리 확인 중';
+    if (locationError) return isEnglish ? 'Need location permission' : '위치 권한 필요';
+    if (!userLocation) return isEnglish ? 'Checking distance' : '거리 확인 중';
 
     const distanceKm = calculateDistanceKm(userLocation.lat, userLocation.lng, courseLat, courseLng);
     if (distanceKm < 1) {
@@ -647,7 +676,7 @@ export default function CoursesPage() {
     }
 
     if (!navigator.geolocation) {
-      setLocationError('현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
+      setLocationError(isEnglish ? 'Unable to get current location. Showing default location.' : '현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
       return;
     }
 
@@ -656,7 +685,7 @@ export default function CoursesPage() {
         moveMap(position.coords.latitude, position.coords.longitude);
       },
       () => {
-        setLocationError('현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
+        setLocationError(isEnglish ? 'Unable to get current location. Showing default location.' : '현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
       },
       {
         enableHighAccuracy: true,
@@ -674,7 +703,7 @@ export default function CoursesPage() {
   };
 
   const handleOnboardingNext = () => {
-    if (onboardingStepIndex >= ONBOARDING_STEPS.length - 1) {
+    if (onboardingStepIndex >= onboardingSteps.length - 1) {
       closeOnboarding();
       return;
     }
@@ -689,8 +718,8 @@ export default function CoursesPage() {
     setIsOnboardingOpen(true);
   }, []);
 
-  const onboardingStep = ONBOARDING_STEPS[onboardingStepIndex];
-  const isLastOnboardingStep = onboardingStepIndex === ONBOARDING_STEPS.length - 1;
+  const onboardingStep = onboardingSteps[onboardingStepIndex];
+  const isLastOnboardingStep = onboardingStepIndex === onboardingSteps.length - 1;
 
   return (
     <div className="h-[100dvh] overscroll-none overflow-hidden flex flex-col">
@@ -708,7 +737,7 @@ export default function CoursesPage() {
         >
           <DialogHeader className="space-y-2 text-left">
             <p className="text-xs font-medium text-slate-500">
-              {onboardingStepIndex + 1} / {ONBOARDING_STEPS.length}
+              {onboardingStepIndex + 1} / {onboardingSteps.length}
             </p>
             <DialogTitle className="text-xl font-semibold tracking-tight text-slate-900">
               {onboardingStep.title}
@@ -724,7 +753,7 @@ export default function CoursesPage() {
               className="rg-touch h-10 rounded-full px-4 text-slate-500"
               onClick={closeOnboarding}
             >
-              건너뛰기
+              {isEnglish ? 'Skip' : '건너뛰기'}
             </Button>
             <div className="flex items-center gap-2">
               <Button
@@ -734,14 +763,14 @@ export default function CoursesPage() {
                 onClick={() => setOnboardingStepIndex((prev) => Math.max(0, prev - 1))}
                 disabled={onboardingStepIndex === 0}
               >
-                이전
+                {isEnglish ? 'Back' : '이전'}
               </Button>
               <Button
                 type="button"
                 className="rg-touch h-10 rounded-full px-5"
                 onClick={handleOnboardingNext}
               >
-                {isLastOnboardingStep ? '시작하기' : '다음'}
+                {isLastOnboardingStep ? (isEnglish ? 'Start' : '시작하기') : (isEnglish ? 'Next' : '다음')}
               </Button>
             </div>
           </DialogFooter>
@@ -750,7 +779,7 @@ export default function CoursesPage() {
 
       <header className="rg-page-header shrink-0 px-4 py-5 sticky top-0 z-10">
         <div className="flex items-center justify-center">
-            <h1 className="text-lg font-semibold tracking-tight text-slate-900">홈</h1>
+            <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'Home' : '홈'}</h1>
         </div>
       </header>
 
@@ -765,13 +794,13 @@ export default function CoursesPage() {
 
             {isNearbyCourseMarkerVisible && isNearbyLoading && (
               <div className="absolute top-3 left-3 rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600">
-                주변 코스를 불러오는 중...
+                {isEnglish ? 'Loading nearby courses...' : '주변 코스를 불러오는 중...'}
               </div>
             )}
 
             <button
               type="button"
-              aria-label="내 현재 위치로 이동"
+              aria-label={isEnglish ? 'Move to current location' : '내 현재 위치로 이동'}
               className={`${LOCATION_FAB_BASE_CLASS} ${locationButtonTransitionClass}`}
               style={{ bottom: getLocationFabBottom(locationButtonBottom) }}
               onClick={moveToCurrentLocation}
@@ -781,14 +810,14 @@ export default function CoursesPage() {
 
             {selectedCourseId && isSelectedCourseLoading && (
               <div className="absolute top-14 right-3 rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600">
-                코스 모양 불러오는 중...
+                {isEnglish ? 'Loading course path...' : '코스 모양 불러오는 중...'}
               </div>
             )}
 
             {selectedCourse && (
               <div className="absolute left-3 right-3 z-20" style={{ bottom: panelHeight + 12 }}>
                 <Link href={`/run?courseId=${selectedCourse.id}`}>
-                  <Button size="lg" className="rg-touch w-full h-12 rounded-2xl">이 코스로 러닝 시작</Button>
+                  <Button size="lg" className="rg-touch w-full h-12 rounded-2xl">{isEnglish ? 'Start Run With This Course' : '이 코스로 러닝 시작'}</Button>
                 </Link>
               </div>
             )}
@@ -799,7 +828,7 @@ export default function CoursesPage() {
             >
               <button
                 type="button"
-                aria-label="목록 패널 높이 조절"
+                aria-label={isEnglish ? 'Adjust list panel height' : '목록 패널 높이 조절'}
                 className="rg-touch shrink-0 touch-none flex w-full items-center justify-center py-3"
                 onPointerDown={onPanelHandlePointerDown}
                 onPointerMove={onPanelHandlePointerMove}
@@ -822,8 +851,8 @@ export default function CoursesPage() {
                 <div className="mb-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">코스 목록</p>
-                      <p className="truncate text-xs text-slate-500">{courses?.courses.length ?? 0}개 코스</p>
+                      <p className="truncate text-sm font-semibold text-slate-900">{isEnglish ? 'Course List' : '코스 목록'}</p>
+                      <p className="truncate text-xs text-slate-500">{courses?.courses.length ?? 0}{isEnglish ? ' courses' : '개 코스'}</p>
                     </div>
                     <Button
                       type="button"
@@ -835,7 +864,7 @@ export default function CoursesPage() {
                       }}
                     >
                       <MapPin className="mr-1 h-3.5 w-3.5" />
-                      {isNearbyCourseMarkerVisible ? '마커 숨기기' : '마커 보기'}
+                      {isNearbyCourseMarkerVisible ? (isEnglish ? 'Hide Markers' : '마커 숨기기') : (isEnglish ? 'Show Markers' : '마커 보기')}
                     </Button>
                   </div>
                   <select
@@ -843,11 +872,11 @@ export default function CoursesPage() {
                     onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
                     className="rg-touch h-11 w-full rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
                   >
-                    <option value="LATEST">최신순</option>
-                    <option value="LIKES_DESC">좋아요 많은순</option>
-                    <option value="NEAREST">가까운순(내 위치)</option>
-                    <option value="COURSE_DISTANCE_ASC">코스 짧은순</option>
-                    <option value="COURSE_DISTANCE_DESC">코스 긴순</option>
+                    <option value="LATEST">{isEnglish ? 'Latest' : '최신순'}</option>
+                    <option value="LIKES_DESC">{isEnglish ? 'Most Liked' : '좋아요 많은순'}</option>
+                    <option value="NEAREST">{isEnglish ? 'Nearest (My Location)' : '가까운순(내 위치)'}</option>
+                    <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
+                    <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
                   </select>
                   <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
                 </div>
@@ -858,13 +887,13 @@ export default function CoursesPage() {
 
                 {isNearbyError && (
                   <div className="mb-2 rounded-2xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
-                    주변 코스를 불러오지 못했습니다.
+                    {isEnglish ? 'Failed to load nearby courses.' : '주변 코스를 불러오지 못했습니다.'}
                     <button
                       type="button"
                       className="ml-2 font-semibold underline underline-offset-2"
                       onClick={() => refetchNearby()}
                     >
-                      다시 시도
+                      {isEnglish ? 'Retry' : '다시 시도'}
                     </button>
                   </div>
                 )}
@@ -881,13 +910,13 @@ export default function CoursesPage() {
                   </div>
                 ) : isError ? (
                   <ErrorState
-                    title="코스를 불러오지 못했습니다"
-                    message="잠시 후 다시 시도해주세요"
-                    actionLabel="다시 시도"
+                    title={isEnglish ? 'Failed to load courses' : '코스를 불러오지 못했습니다'}
+                    message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
+                    actionLabel={isEnglish ? 'Retry' : '다시 시도'}
                     onAction={() => refetch()}
                   />
                 ) : !courses?.courses || courses.courses.length === 0 ? (
-                  <div className="py-12 text-center text-sm text-slate-500">등록된 코스가 없습니다</div>
+                  <div className="py-12 text-center text-sm text-slate-500">{isEnglish ? 'No courses available.' : '등록된 코스가 없습니다'}</div>
                 ) : (
                   <div className="rg-stagger space-y-3 pb-2">
                     {courses.courses.map((course, index) => (
@@ -910,7 +939,7 @@ export default function CoursesPage() {
                                         : [];
                                       return getCompactPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
                                     })()}
-                                    alt={`${course.title} 지도`}
+                                    alt={isEnglish ? `${course.title} map` : `${course.title} 지도`}
                                     fill
                                     sizes="120px"
                                     quality={70}
@@ -924,12 +953,12 @@ export default function CoursesPage() {
                                     <MapPin className="h-3.5 w-3.5" />
                                     <span>{course.totalDistance.toFixed(1)}km</span>
                                     <span>•</span>
-                                    <span>{course.estimatedTime}분</span>
+                                    <span>{course.estimatedTime}{isEnglish ? ' min' : '분'}</span>
                                   </div>
-                                  <p className="mt-1 text-xs text-slate-500">내 위치에서 {getDistanceLabel(course.centerLat, course.centerLng)}</p>
+                                  <p className="mt-1 text-xs text-slate-500">{isEnglish ? 'From my location' : '내 위치에서'} {getDistanceLabel(course.centerLat, course.centerLng)}</p>
                                   <div className="mt-2 flex items-center gap-2">
                                     <Badge className={`${difficultyColors[course.difficulty]} rounded-full text-[11px]`}>
-                                      {difficultyLabels[course.difficulty]}
+                                      {difficultyLabel(course.difficulty)}
                                     </Badge>
                                     <div className="flex items-center gap-1 text-xs text-slate-600">
                                       <Heart className="h-3.5 w-3.5" />
@@ -963,16 +992,16 @@ export default function CoursesPage() {
           ))
         ) : isError ? (
           <ErrorState
-            title="코스를 불러오지 못했습니다"
-            message="잠시 후 다시 시도해주세요"
-            actionLabel="다시 시도"
+            title={isEnglish ? 'Failed to load courses' : '코스를 불러오지 못했습니다'}
+            message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
+            actionLabel={isEnglish ? 'Retry' : '다시 시도'}
             onAction={() => refetch()}
           />
         ) : !courses?.courses || courses.courses.length === 0 ? (
             <div className="text-center py-20">
-              <p className="text-slate-500">등록된 코스가 없습니다</p>
+              <p className="text-slate-500">{isEnglish ? 'No courses available.' : '등록된 코스가 없습니다'}</p>
               <Link href="/create">
-              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">첫 코스 만들기</Button>
+              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">{isEnglish ? 'Create First Course' : '첫 코스 만들기'}</Button>
               </Link>
             </div>
         ) : (
@@ -983,11 +1012,11 @@ export default function CoursesPage() {
                 onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
                 className="rg-touch h-11 rounded-full border border-white/70 bg-white/90 px-3 text-sm text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
               >
-                <option value="LATEST">최신순</option>
-                <option value="LIKES_DESC">좋아요 많은순</option>
-                <option value="NEAREST">가까운순(내 위치)</option>
-                <option value="COURSE_DISTANCE_ASC">코스 짧은순</option>
-                <option value="COURSE_DISTANCE_DESC">코스 긴순</option>
+                <option value="LATEST">{isEnglish ? 'Latest' : '최신순'}</option>
+                <option value="LIKES_DESC">{isEnglish ? 'Most Liked' : '좋아요 많은순'}</option>
+                <option value="NEAREST">{isEnglish ? 'Nearest (My Location)' : '가까운순(내 위치)'}</option>
+                <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
+                <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
               </select>
             </div>
             {listSort === 'NEAREST' && locationError && (
@@ -1005,7 +1034,7 @@ export default function CoursesPage() {
                           : [];
                         return getPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
                       })()}
-                      alt={`${course.title} 지도`}
+                      alt={isEnglish ? `${course.title} map` : `${course.title} 지도`}
                       fill
                       sizes="100vw"
                       quality={70}
@@ -1023,9 +1052,9 @@ export default function CoursesPage() {
                           <MapPin className="w-4 h-4" />
                           <span>{course.totalDistance.toFixed(1)}km</span>
                           <span>•</span>
-                          <span>{course.estimatedTime}분</span>
+                          <span>{course.estimatedTime}{isEnglish ? ' min' : '분'}</span>
                         </div>
-                        <p className="mt-1 text-xs text-slate-500">내 위치에서 {getDistanceLabel(course.centerLat, course.centerLng)}</p>
+                        <p className="mt-1 text-xs text-slate-500">{isEnglish ? 'From my location' : '내 위치에서'} {getDistanceLabel(course.centerLat, course.centerLng)}</p>
                       </div>
                       <div className="flex items-center gap-1 text-sm text-slate-600">
                         <Heart className="w-4 h-4" />
@@ -1035,7 +1064,7 @@ export default function CoursesPage() {
 
                     <div className="flex items-center gap-2 mt-3">
                       <Badge className={`${difficultyColors[course.difficulty]} rounded-full`}>
-                        {difficultyLabels[course.difficulty]}
+                        {difficultyLabel(course.difficulty)}
                       </Badge>
                       {course.tags.slice(0, 3).map((tag) => (
                         <Badge key={tag} variant="secondary" className="rounded-full">
