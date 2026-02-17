@@ -919,8 +919,10 @@ export default function CoursesPage() {
 
               <div
                 className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(env(safe-area-inset-bottom),12px)] touch-pan-y [-webkit-overflow-scrolling:touch]"
-                onPointerDownCapture={(event) => {
-                  event.stopPropagation();
+                style={{
+                  WebkitOverflowScrolling: 'touch',
+                  overscrollBehaviorY: 'contain',
+                  touchAction: 'pan-y',
                 }}
               >
                 <div className="mb-3 space-y-2">
