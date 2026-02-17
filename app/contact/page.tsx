@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { resolveRequestLocale } from '@/lib/i18n/locale';
 
-const CONTACT_EMAIL = 'support@running-go.app';
+const CONTACT_EMAIL = 'ehdrjs0887@gmail.com';
 
 export default async function ContactPage() {
   const locale = await resolveRequestLocale();
