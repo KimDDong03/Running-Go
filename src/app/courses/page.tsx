@@ -26,9 +26,9 @@ const difficultyLabelsKo: Record<Difficulty, string> = {
 };
 
 const difficultyColors: Record<Difficulty, string> = {
-  EASY: 'bg-green-100 text-green-700',
-  MEDIUM: 'bg-yellow-100 text-yellow-700',
-  HARD: 'bg-red-100 text-red-700',
+  EASY: 'bg-green-500 text-white',
+  MEDIUM: 'bg-yellow-500 text-white',
+  HARD: 'bg-red-500 text-white',
 };
 
 const DEFAULT_CENTER = {
@@ -285,7 +285,6 @@ export default function CoursesPage() {
 
   const onPanelContentTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
     if (event.touches.length !== 1) return;
-    if (event.currentTarget.scrollTop > 0) return;
 
     panelScrollDragStateRef.current = {
       startY: event.touches[0].clientY,
@@ -301,6 +300,11 @@ export default function CoursesPage() {
 
     const touch = event.touches[0];
     const delta = dragState.startY - touch.clientY;
+
+    const isContentAtTop = event.currentTarget.scrollTop <= 0;
+    if (!dragState.isDragging && !isContentAtTop) {
+      return;
+    }
 
     if (delta >= -6) {
       return;
@@ -599,6 +603,20 @@ export default function CoursesPage() {
     }
 
     const markerCourses = [...(nearbyCourses?.courses ?? [])];
+    const selectedCourseFromList = courses?.courses.find((course) => course.id === selectedCourseId);
+    if (selectedCourseFromList && !markerCourses.some((course) => course.id === selectedCourseFromList.id)) {
+      markerCourses.push({
+        id: selectedCourseFromList.id,
+        title: selectedCourseFromList.title,
+        centerLat: selectedCourseFromList.centerLat,
+        centerLng: selectedCourseFromList.centerLng,
+        totalDistance: selectedCourseFromList.totalDistance,
+        estimatedTime: selectedCourseFromList.estimatedTime,
+        difficulty: selectedCourseFromList.difficulty,
+        distanceFromUserKm: 0,
+      });
+    }
+
     if (selectedCourse && !markerCourses.some((course) => course.id === selectedCourse.id)) {
       markerCourses.push({
         id: selectedCourse.id,
@@ -638,7 +656,7 @@ export default function CoursesPage() {
 
       courseMarkersRef.current.push(marker);
     });
-  }, [isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode]);
+  }, [courses?.courses, isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;

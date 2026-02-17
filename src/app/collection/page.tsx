@@ -33,9 +33,9 @@ const difficultyLabels: Record<Difficulty, string> = {
 };
 
 const difficultyColors: Record<Difficulty, string> = {
-  EASY: 'bg-green-100 text-green-700',
-  MEDIUM: 'bg-yellow-100 text-yellow-700',
-  HARD: 'bg-red-100 text-red-700',
+  EASY: 'bg-green-500 text-white',
+  MEDIUM: 'bg-yellow-500 text-white',
+  HARD: 'bg-red-500 text-white',
 };
 
 export default function CollectionPage() {
