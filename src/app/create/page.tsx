@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import { loadMapSdk, type MapLike, type MapMarkerLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
 import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
 import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
+import { trackEvent } from '@/lib/analytics';
 
 interface Waypoint {
   lat: number;
@@ -77,6 +78,8 @@ export default function CreateCoursePage() {
   const isAppliedRouteEditableRef = useRef(false);
   const suppressMarkerClickRef = useRef(false);
   const mapDrawListenersRef = useRef<object[]>([]);
+  const hasTrackedWaypointGoalRef = useRef(false);
+  const previousInputModeRef = useRef<'click' | 'draw'>('click');
   const router = useRouter();
   const { status: sessionStatus } = useSession();
   const { locale } = useLocale();
@@ -143,6 +146,28 @@ export default function CreateCoursePage() {
     const hasSeenHelp = window.localStorage.getItem(CREATE_MARKER_HELP_STORAGE_KEY) === '1';
     setIsMarkerHelpVisible(!hasSeenHelp);
   }, []);
+
+  useEffect(() => {
+    trackEvent('create_viewed', { locale });
+  }, [locale]);
+
+  useEffect(() => {
+    const previousMode = previousInputModeRef.current;
+    if (previousMode !== inputMode) {
+      trackEvent('create_mode_changed', { from: previousMode, to: inputMode });
+      previousInputModeRef.current = inputMode;
+    }
+  }, [inputMode]);
+
+  useEffect(() => {
+    if (waypoints.length >= 5 && !hasTrackedWaypointGoalRef.current) {
+      hasTrackedWaypointGoalRef.current = true;
+      trackEvent('create_waypoint_goal_reached', { waypoint_count: waypoints.length });
+    }
+    if (waypoints.length < 5) {
+      hasTrackedWaypointGoalRef.current = false;
+    }
+  }, [waypoints.length]);
 
   const showDirectionsUnavailableWarning = useCallback((message?: string) => {
     const now = Date.now();
@@ -512,6 +537,10 @@ export default function CreateCoursePage() {
 
         await rebuildRouteFromWaypoints(nextWaypoints);
         renderWaypointMarkers(nextWaypoints, markerMode);
+        trackEvent('marker_removed', {
+          marker_mode: markerMode,
+          remaining_waypoints: nextWaypoints.length,
+        });
       };
 
       const marker = new sdk.Marker({
@@ -608,6 +637,10 @@ export default function CreateCoursePage() {
       routeCoordinatesRef.current = matched.coordinates;
       updateRouteLine(matched.coordinates);
       renderWaypointMarkers(nextWaypoints, 'applied');
+      trackEvent('draw_route_applied', {
+        waypoint_count: nextWaypoints.length,
+        distance_km: Number((matched.distanceKm || calculatePolylineDistanceKm(matched.coordinates)).toFixed(2)),
+      });
 
       drawPointsRef.current = [];
       clearDrawLine();
@@ -818,6 +851,10 @@ export default function CreateCoursePage() {
         updateRouteLine(nextCoordinates);
       }
       renderWaypointMarkers([newWaypoint], 'manual');
+      trackEvent('marker_added', {
+        input_mode: inputModeRef.current,
+        waypoint_count: 1,
+      });
       return;
     }
 
@@ -863,6 +900,10 @@ export default function CreateCoursePage() {
       }
 
       renderWaypointMarkers(nextWaypoints, 'manual');
+      trackEvent('marker_added', {
+        input_mode: inputModeRef.current,
+        waypoint_count: nextWaypoints.length,
+      });
     } finally {
       setIsRouting(false);
       isRoutingRef.current = false;
@@ -982,6 +1023,24 @@ export default function CreateCoursePage() {
     );
   };
   const isValid = waypoints.length >= 5 && waypoints.length <= 30;
+
+  const proceedToDetails = useCallback(() => {
+    const routeCoordinates = routeCoordinatesRef.current;
+    const denseWaypoints = routeCoordinates.length >= 2
+      ? buildDenseWaypoints(routeCoordinates)
+      : waypoints;
+    const payload = {
+      waypoints: denseWaypoints.length ? denseWaypoints : waypoints,
+      totalDistance,
+    };
+    sessionStorage.setItem('courseDraft', JSON.stringify(payload));
+    trackEvent('course_save_initiated', {
+      waypoint_count: payload.waypoints.length,
+      distance_km: Number(totalDistance.toFixed(2)),
+      input_mode: inputMode,
+    });
+    router.push('/create/details');
+  }, [buildDenseWaypoints, inputMode, router, totalDistance, waypoints]);
 
   if (sessionStatus === 'loading') {
     return (
@@ -1230,18 +1289,7 @@ export default function CreateCoursePage() {
                 size="lg"
                 className="rg-touch w-full h-14 text-lg rounded-2xl"
                 disabled={!isValid}
-                onClick={() => {
-                  const routeCoordinates = routeCoordinatesRef.current;
-                  const denseWaypoints = routeCoordinates.length >= 2
-                    ? buildDenseWaypoints(routeCoordinates)
-                    : waypoints;
-                  const payload = {
-                    waypoints: denseWaypoints.length ? denseWaypoints : waypoints,
-                    totalDistance,
-                  };
-                  sessionStorage.setItem('courseDraft', JSON.stringify(payload));
-                  router.push('/create/details');
-                }}
+                onClick={proceedToDetails}
               >
                 {isEnglish ? 'Next Step →' : '다음 단계로 →'}
               </Button>
@@ -1249,12 +1297,22 @@ export default function CreateCoursePage() {
           )}
 
           {!isPanelExpanded && (
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-sm text-slate-700">
-              <span>
-                Waypoint {waypoints.length}/{MAX_WAYPOINT_COUNT}
-              </span>
-              <span>{totalDistance.toFixed(2)}km</span>
-            </div>
+            <>
+              <div className="flex items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-sm text-slate-700">
+                <span>
+                  Waypoint {waypoints.length}/{MAX_WAYPOINT_COUNT}
+                </span>
+                <span>{totalDistance.toFixed(2)}km</span>
+              </div>
+              <Button
+                size="sm"
+                className="rg-touch w-full rounded-xl"
+                disabled={!isValid}
+                onClick={proceedToDetails}
+              >
+                {isEnglish ? 'Next Step' : '다음 단계'}
+              </Button>
+            </>
           )}
         </CardContent>
       </Card>

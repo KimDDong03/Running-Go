@@ -38,6 +38,7 @@ const mapFormatToStyle = (format: AdSlotProps['format']) => {
 
 export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
   const initializedRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const clientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
   const effectiveSlot = slotId ?? process.env.NEXT_PUBLIC_ADSENSE_SLOT_INLINE;
   const [hasConsent, setHasConsent] = useState(false);
@@ -67,12 +68,50 @@ export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
     }
   }, [clientId, effectiveSlot, hasConsent]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const suspiciousPattern = /<\/?body|background-color:\s*transparent|marginwidth|marginheight/i;
+
+    const sanitizeTextNodes = () => {
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      const targets: Text[] = [];
+
+      let current = walker.nextNode();
+      while (current) {
+        const node = current as Text;
+        if (suspiciousPattern.test(node.textContent ?? '')) {
+          targets.push(node);
+        }
+        current = walker.nextNode();
+      }
+
+      targets.forEach((node) => {
+        node.textContent = '';
+      });
+    };
+
+    sanitizeTextNodes();
+
+    const observer = new MutationObserver(() => {
+      sanitizeTextNodes();
+    });
+    observer.observe(container, { childList: true, subtree: true, characterData: true });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   if (!clientId || !effectiveSlot || !hasConsent) {
     return null;
   }
 
   return (
-    <div className={className}>
+    <div ref={containerRef} className={className}>
       <ins
         className="adsbygoogle"
         style={mapFormatToStyle(format)}

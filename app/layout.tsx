@@ -47,20 +47,22 @@ export default async function RootLayout({
   const locale = await resolveRequestLocale();
   const messages = getMessages(locale);
   const footerCopy = locale === 'ko'
-    ? {
-        about: '서비스 소개',
-        contact: '문의하기',
-        privacy: '개인정보처리방침',
-        cookies: '쿠키 정책',
-        terms: '이용약관',
-      }
-    : {
-        about: 'About',
-        contact: 'Contact',
-        privacy: 'Privacy',
-        cookies: 'Cookies',
-        terms: 'Terms',
-      };
+      ? {
+          about: '서비스 소개',
+          faq: '자주 묻는 질문',
+          contact: '문의하기',
+          privacy: '개인정보처리방침',
+          cookies: '쿠키 정책',
+          terms: '이용약관',
+        }
+      : {
+          about: 'About',
+          faq: 'FAQ',
+          contact: 'Contact',
+          privacy: 'Privacy',
+          cookies: 'Cookies',
+          terms: 'Terms',
+        };
 
   return (
     <html lang={locale}>
@@ -93,6 +95,7 @@ gtag('config', '${GA_MEASUREMENT_ID}');`}
               <footer className="mx-auto w-full max-w-[1200px] px-4 pb-28 pt-6 text-center text-xs text-slate-500">
                 <div className="flex flex-wrap items-center justify-center gap-3">
                   <Link href="/about" className="underline underline-offset-2">{footerCopy.about}</Link>
+                  <Link href="/faq" className="underline underline-offset-2">{footerCopy.faq}</Link>
                   <Link href="/contact" className="underline underline-offset-2">{footerCopy.contact}</Link>
                   <Link href="/privacy" className="underline underline-offset-2">{footerCopy.privacy}</Link>
                   <Link href="/cookies" className="underline underline-offset-2">{footerCopy.cookies}</Link>
