@@ -177,7 +177,7 @@ export default function CoursesPage() {
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const panelContentDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; startScrollTop: number; isDragging: boolean } | null>(null);
+  const panelContentDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; startScrollTop: number; pullDistance: number; isDragging: boolean } | null>(null);
   const panelHeightRef = useRef<number>(INITIAL_PANEL_HEIGHT);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
@@ -305,6 +305,7 @@ export default function CoursesPage() {
         startHeight: panelHeightRef.current,
         lastHeight: panelHeightRef.current,
         startScrollTop: panelContentElement.scrollTop,
+        pullDistance: 0,
         isDragging: false,
       };
     };
@@ -321,7 +322,7 @@ export default function CoursesPage() {
       const startedAtTop = dragState.startScrollTop <= 2;
 
       if (!dragState.isDragging) {
-        if ((!isContentAtTop && !startedAtTop) || pullDistance <= 8) {
+        if ((!isContentAtTop && !startedAtTop) || pullDistance <= 4) {
           return;
         }
         dragState.isDragging = true;
@@ -336,6 +337,7 @@ export default function CoursesPage() {
       const { min, max } = getPanelSnapHeights();
       const nextHeight = dragState.startHeight - pullDistance;
       const clampedHeight = Math.max(min, Math.min(max, nextHeight));
+      dragState.pullDistance = pullDistance;
       dragState.lastHeight = clampedHeight;
       setPanelHeight(clampedHeight);
     };
@@ -352,9 +354,14 @@ export default function CoursesPage() {
       setIsPanelDragging(false);
       const { min, mid, max } = getPanelSnapHeights();
       const candidates = [min, mid, max];
-      const nearest = candidates.reduce((closest, value) => {
+      let nearest = candidates.reduce((closest, value) => {
         return Math.abs(value - dragState.lastHeight) < Math.abs(closest - dragState.lastHeight) ? value : closest;
       }, candidates[0]);
+
+      if (dragState.pullDistance > 0 && nearest >= dragState.startHeight) {
+        nearest = dragState.startHeight > mid ? mid : min;
+      }
+
       setPanelHeight(nearest);
     };
 
