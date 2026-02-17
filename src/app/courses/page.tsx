@@ -1,6 +1,6 @@
 'use client';
 
-import { type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { trpc } from '@/components/providers/TRPCProvider';
@@ -168,6 +168,7 @@ export default function CoursesPage() {
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const onboardingSteps = isEnglish ? ONBOARDING_STEPS_EN : ONBOARDING_STEPS_KO;
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const panelContentRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const mapRef = useRef<MapLike | null>(null);
   const userMarkerRef = useRef<MapMarkerLike | null>(null);
@@ -177,6 +178,7 @@ export default function CoursesPage() {
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const panelContentDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean } | null>(null);
+  const panelHeightRef = useRef<number>(INITIAL_PANEL_HEIGHT);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
 
@@ -283,59 +285,87 @@ export default function CoursesPage() {
     snapPanelHeight(clampedHeight);
   };
 
-  const onPanelContentTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (event.touches.length !== 1) return;
-    panelContentDragStateRef.current = {
-      startY: event.touches[0]?.clientY ?? 0,
-      startHeight: panelHeight,
-      lastHeight: panelHeight,
-      isDragging: false,
-    };
-  };
-
-  const onPanelContentTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
-    const dragState = panelContentDragStateRef.current;
-    if (!dragState || event.touches.length !== 1) return;
-
-    const touch = event.touches[0];
-    if (!touch) return;
-
-    const delta = dragState.startY - touch.clientY;
-    const isContentAtTop = event.currentTarget.scrollTop <= 0;
-
-    if (!dragState.isDragging) {
-      if (!isContentAtTop || delta >= -6) {
-        return;
-      }
-      dragState.isDragging = true;
-      setIsPanelDragging(true);
-    }
-
-    event.preventDefault();
-
-    const { min, max } = getPanelSnapHeights();
-    const nextHeight = dragState.startHeight + delta;
-    const clampedHeight = Math.max(min, Math.min(max, nextHeight));
-    dragState.lastHeight = clampedHeight;
-    setPanelHeight(clampedHeight);
-  };
-
-  const onPanelContentTouchEnd = () => {
-    const dragState = panelContentDragStateRef.current;
-    panelContentDragStateRef.current = null;
-    if (!dragState || !dragState.isDragging) {
-      setIsPanelDragging(false);
-      return;
-    }
-
-    setIsPanelDragging(false);
-    snapPanelHeight(dragState.lastHeight);
-  };
-
   const collapsePanelToMin = () => {
     const { min } = getPanelSnapHeights();
     setPanelHeight((prev) => (prev > min ? min : prev));
   };
+
+  useEffect(() => {
+    panelHeightRef.current = panelHeight;
+  }, [panelHeight]);
+
+  useEffect(() => {
+    const panelContentElement = panelContentRef.current;
+    if (!panelContentElement) return;
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      panelContentDragStateRef.current = {
+        startY: event.touches[0]?.clientY ?? 0,
+        startHeight: panelHeightRef.current,
+        lastHeight: panelHeightRef.current,
+        isDragging: false,
+      };
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const dragState = panelContentDragStateRef.current;
+      if (!dragState || event.touches.length !== 1) return;
+
+      const touch = event.touches[0];
+      if (!touch) return;
+
+      const delta = dragState.startY - touch.clientY;
+      const isContentAtTop = panelContentElement.scrollTop <= 2;
+
+      if (!dragState.isDragging) {
+        if (!isContentAtTop || delta >= -6) {
+          return;
+        }
+        dragState.isDragging = true;
+        setIsPanelDragging(true);
+      }
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+
+      const { min, max } = getPanelSnapHeights();
+      const nextHeight = dragState.startHeight + delta;
+      const clampedHeight = Math.max(min, Math.min(max, nextHeight));
+      dragState.lastHeight = clampedHeight;
+      setPanelHeight(clampedHeight);
+    };
+
+    const onTouchEnd = () => {
+      const dragState = panelContentDragStateRef.current;
+      panelContentDragStateRef.current = null;
+      if (!dragState || !dragState.isDragging) {
+        setIsPanelDragging(false);
+        return;
+      }
+
+      setIsPanelDragging(false);
+      const { min, mid, max } = getPanelSnapHeights();
+      const candidates = [min, mid, max];
+      const nearest = candidates.reduce((closest, value) => {
+        return Math.abs(value - dragState.lastHeight) < Math.abs(closest - dragState.lastHeight) ? value : closest;
+      }, candidates[0]);
+      setPanelHeight(nearest);
+    };
+
+    panelContentElement.addEventListener('touchstart', onTouchStart, { passive: true });
+    panelContentElement.addEventListener('touchmove', onTouchMove, { passive: false });
+    panelContentElement.addEventListener('touchend', onTouchEnd, { passive: true });
+    panelContentElement.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+    return () => {
+      panelContentElement.removeEventListener('touchstart', onTouchStart);
+      panelContentElement.removeEventListener('touchmove', onTouchMove);
+      panelContentElement.removeEventListener('touchend', onTouchEnd);
+      panelContentElement.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, []);
 
   useEffect(() => {
     const syncPanelHeightWithViewport = () => {
@@ -919,15 +949,12 @@ export default function CoursesPage() {
               </button>
 
               <div
+                ref={panelContentRef}
                 className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(env(safe-area-inset-bottom),12px)] touch-pan-y [-webkit-overflow-scrolling:touch]"
                 style={{
                   WebkitOverflowScrolling: 'touch',
                   overscrollBehaviorY: 'contain',
                 }}
-                onTouchStart={onPanelContentTouchStart}
-                onTouchMove={onPanelContentTouchMove}
-                onTouchEnd={onPanelContentTouchEnd}
-                onTouchCancel={onPanelContentTouchEnd}
               >
                 <div className="mb-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
