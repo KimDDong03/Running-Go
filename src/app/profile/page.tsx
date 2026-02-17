@@ -3,7 +3,7 @@
 import { type ChangeEvent, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { signOut } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
@@ -25,11 +25,13 @@ import { ChevronLeft, User } from 'lucide-react';
 
 export default function ProfilePage() {
   const { locale } = useLocale();
+  const { data: session } = useSession();
   const { data, isLoading, isError, refetch } = trpc.profile.summary.useQuery();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isAvatarProcessing, setIsAvatarProcessing] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const updateAvatar = trpc.profile.updateAvatar.useMutation({
     onSuccess: async () => {
       toast.success(locale === 'en' ? 'Profile photo updated.' : '프로필 사진을 업데이트했어요');
@@ -266,10 +268,17 @@ export default function ProfilePage() {
                         </DialogTitle>
                         <DialogDescription className="text-slate-600">
                           {isEnglish
-                            ? 'This action permanently removes your account data and cannot be undone. Type DELETE to continue.'
-                            : '탈퇴 시 계정 데이터가 영구 삭제되며 복구할 수 없습니다. 진행하려면 DELETE를 입력하세요.'}
+                            ? 'This action permanently removes your account data and cannot be undone. Enter your email and type DELETE to continue.'
+                            : '탈퇴 시 계정 데이터가 영구 삭제되며 복구할 수 없습니다. 진행하려면 이메일과 DELETE를 입력하세요.'}
                         </DialogDescription>
                       </DialogHeader>
+
+                      <input
+                        value={deleteConfirmEmail}
+                        onChange={(event) => setDeleteConfirmEmail(event.target.value)}
+                        placeholder={session?.user?.email ?? 'you@example.com'}
+                        className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                      />
 
                       <input
                         value={deleteConfirmText}
@@ -285,6 +294,7 @@ export default function ProfilePage() {
                           onClick={() => {
                             setIsDeleteDialogOpen(false);
                             setDeleteConfirmText('');
+                            setDeleteConfirmEmail('');
                           }}
                         >
                           {isEnglish ? 'Cancel' : '취소'}
@@ -292,10 +302,18 @@ export default function ProfilePage() {
                         <Button
                           variant="destructive"
                           className="rounded-full"
-                          disabled={deleteConfirmText !== 'DELETE' || deleteAccount.isPending}
+                          disabled={
+                            deleteConfirmText !== 'DELETE'
+                            || deleteConfirmEmail.trim().toLowerCase() !== (session?.user?.email ?? '').toLowerCase()
+                            || deleteAccount.isPending
+                          }
                           onClick={() => {
-                            void deleteAccount.mutateAsync({ confirmText: deleteConfirmText }).then(() => {
+                            void deleteAccount.mutateAsync({
+                              confirmText: deleteConfirmText,
+                              confirmEmail: deleteConfirmEmail,
+                            }).then(() => {
                               setDeleteConfirmText('');
+                              setDeleteConfirmEmail('');
                             });
                           }}
                         >

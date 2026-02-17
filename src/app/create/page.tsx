@@ -32,6 +32,8 @@ interface Waypoint {
 
 const MAX_WAYPOINT_COUNT = 30;
 const CREATE_MARKER_HELP_STORAGE_KEY = 'running-go:create-marker-help:v1';
+const DRAW_POINT_SAMPLE_COUNT = 16;
+const DRAW_POINT_MIN_DISTANCE_M = 12;
 
 const hasCoord = (value: unknown): value is { coord: { lat: () => number; lng: () => number } } => {
   if (!value || typeof value !== 'object') return false;
@@ -447,11 +449,11 @@ export default function CreateCoursePage() {
   }, [clearDrawLine]);
 
   const sampleDrawPoints = useCallback((points: { lat: number; lng: number }[]) => {
-    if (points.length <= 20) {
+    if (points.length <= DRAW_POINT_SAMPLE_COUNT) {
       return points;
     }
     const source = points.map((point) => [point.lng, point.lat] as [number, number]);
-    const sampled = sampleRoutePoints(source, 20);
+    const sampled = sampleRoutePoints(source, DRAW_POINT_SAMPLE_COUNT);
     return sampled;
   }, [sampleRoutePoints]);
 
@@ -705,7 +707,7 @@ export default function CreateCoursePage() {
           }
 
           const last = prevPoints[prevPoints.length - 1];
-          if (distanceMeters(last, nextPoint) < 6) {
+          if (distanceMeters(last, nextPoint) < DRAW_POINT_MIN_DISTANCE_M) {
             return;
           }
 

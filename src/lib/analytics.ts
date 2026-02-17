@@ -15,5 +15,13 @@ export const trackEvent = (eventName: string, params?: AnalyticsParams) => {
     return;
   }
 
-  window.gtag('event', eventName, params ?? {});
+  const locale = document.documentElement.lang?.toLowerCase().startsWith('ko') ? 'ko' : 'en';
+  const width = window.innerWidth;
+  const deviceType = width < 768 ? 'mobile' : width < 1024 ? 'tablet' : 'desktop';
+
+  window.gtag('event', eventName, {
+    locale,
+    device_type: deviceType,
+    ...(params ?? {}),
+  });
 };

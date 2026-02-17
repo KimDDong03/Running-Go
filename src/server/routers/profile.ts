@@ -22,7 +22,10 @@ const getOrCreateGuestUserId = async (userId: string | null) => {
 
 export const profileRouter = createTRPCRouter({
   deleteAccount: protectedProcedure
-    .input(z.object({ confirmText: z.string().trim() }))
+    .input(z.object({
+      confirmText: z.string().trim(),
+      confirmEmail: z.string().trim().email(),
+    }))
     .mutation(async ({ input, ctx }) => {
       if (input.confirmText !== 'DELETE') {
         throw new TRPCError({
@@ -33,7 +36,7 @@ export const profileRouter = createTRPCRouter({
 
       const user = await prisma.user.findUnique({
         where: { id: ctx.userId },
-        select: { provider: true },
+        select: { provider: true, email: true },
       });
 
       if (!user) {
@@ -43,6 +46,16 @@ export const profileRouter = createTRPCRouter({
       if (user.provider === 'guest') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: '게스트 계정은 탈퇴할 수 없습니다' });
       }
+
+      if (user.email.toLowerCase() !== input.confirmEmail.toLowerCase()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '이메일 확인 값이 일치하지 않습니다' });
+      }
+
+      console.info('[account.delete]', {
+        userId: ctx.userId,
+        email: user.email,
+        deletedAt: new Date().toISOString(),
+      });
 
       await prisma.user.delete({ where: { id: ctx.userId } });
 
