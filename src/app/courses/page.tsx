@@ -1,6 +1,6 @@
 'use client';
 
-import { type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { trpc } from '@/components/providers/TRPCProvider';
@@ -176,7 +176,7 @@ export default function CoursesPage() {
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const panelScrollDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean } | null>(null);
+  const panelScrollDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean; pointerId: number } | null>(null);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
 
@@ -283,30 +283,28 @@ export default function CoursesPage() {
     snapPanelHeight(clampedHeight);
   };
 
-  const onPanelContentTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (event.touches.length !== 1) return;
-
-    panelScrollDragStateRef.current = {
-      startY: event.touches[0].clientY,
-      startHeight: panelHeight,
-      lastHeight: panelHeight,
-      isDragging: false,
-    };
-  };
-
-  const onPanelContentTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
-    const dragState = panelScrollDragStateRef.current;
-    if (!dragState || event.touches.length !== 1) return;
-
-    const touch = event.touches[0];
-    const delta = dragState.startY - touch.clientY;
-
-    const isContentAtTop = event.currentTarget.scrollTop <= 0;
-    if (!dragState.isDragging && !isContentAtTop) {
+  const onPanelContentPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse') {
       return;
     }
 
-    if (delta >= -6) {
+    panelScrollDragStateRef.current = {
+      startY: event.clientY,
+      startHeight: panelHeight,
+      lastHeight: panelHeight,
+      isDragging: false,
+      pointerId: event.pointerId,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onPanelContentPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = panelScrollDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    const delta = dragState.startY - event.clientY;
+    const isContentAtTop = event.currentTarget.scrollTop <= 0;
+    if (!dragState.isDragging && (!isContentAtTop || delta >= -8)) {
       return;
     }
 
@@ -322,11 +320,19 @@ export default function CoursesPage() {
     setPanelHeight(clampedHeight);
   };
 
-  const onPanelContentTouchEnd = () => {
+  const onPanelContentPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     const dragState = panelScrollDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
     panelScrollDragStateRef.current = null;
 
-    if (!dragState || !dragState.isDragging) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (!dragState.isDragging) {
       setIsPanelDragging(false);
       return;
     }
@@ -924,6 +930,10 @@ export default function CoursesPage() {
                   overscrollBehaviorY: 'contain',
                   touchAction: 'pan-y',
                 }}
+                onPointerDown={onPanelContentPointerDown}
+                onPointerMove={onPanelContentPointerMove}
+                onPointerUp={onPanelContentPointerEnd}
+                onPointerCancel={onPanelContentPointerEnd}
               >
                 <div className="mb-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
