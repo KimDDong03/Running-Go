@@ -177,7 +177,7 @@ export default function CoursesPage() {
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const panelContentDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean } | null>(null);
+  const panelContentDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; startScrollTop: number; isDragging: boolean } | null>(null);
   const panelHeightRef = useRef<number>(INITIAL_PANEL_HEIGHT);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
@@ -304,6 +304,7 @@ export default function CoursesPage() {
         startY: event.touches[0]?.clientY ?? 0,
         startHeight: panelHeightRef.current,
         lastHeight: panelHeightRef.current,
+        startScrollTop: panelContentElement.scrollTop,
         isDragging: false,
       };
     };
@@ -315,15 +316,17 @@ export default function CoursesPage() {
       const touch = event.touches[0];
       if (!touch) return;
 
-      const delta = dragState.startY - touch.clientY;
+      const pullDistance = touch.clientY - dragState.startY;
       const isContentAtTop = panelContentElement.scrollTop <= 2;
+      const startedAtTop = dragState.startScrollTop <= 2;
 
       if (!dragState.isDragging) {
-        if (!isContentAtTop || delta >= -6) {
+        if ((!isContentAtTop && !startedAtTop) || pullDistance <= 8) {
           return;
         }
         dragState.isDragging = true;
         setIsPanelDragging(true);
+        panelContentElement.style.overflowY = 'hidden';
       }
 
       if (event.cancelable) {
@@ -331,7 +334,7 @@ export default function CoursesPage() {
       }
 
       const { min, max } = getPanelSnapHeights();
-      const nextHeight = dragState.startHeight + delta;
+      const nextHeight = dragState.startHeight - pullDistance;
       const clampedHeight = Math.max(min, Math.min(max, nextHeight));
       dragState.lastHeight = clampedHeight;
       setPanelHeight(clampedHeight);
@@ -340,6 +343,7 @@ export default function CoursesPage() {
     const onTouchEnd = () => {
       const dragState = panelContentDragStateRef.current;
       panelContentDragStateRef.current = null;
+      panelContentElement.style.overflowY = '';
       if (!dragState || !dragState.isDragging) {
         setIsPanelDragging(false);
         return;
@@ -354,16 +358,16 @@ export default function CoursesPage() {
       setPanelHeight(nearest);
     };
 
-    panelContentElement.addEventListener('touchstart', onTouchStart, { passive: true });
-    panelContentElement.addEventListener('touchmove', onTouchMove, { passive: false });
-    panelContentElement.addEventListener('touchend', onTouchEnd, { passive: true });
-    panelContentElement.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    panelContentElement.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    panelContentElement.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+    panelContentElement.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    panelContentElement.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
 
     return () => {
-      panelContentElement.removeEventListener('touchstart', onTouchStart);
-      panelContentElement.removeEventListener('touchmove', onTouchMove);
-      panelContentElement.removeEventListener('touchend', onTouchEnd);
-      panelContentElement.removeEventListener('touchcancel', onTouchEnd);
+      panelContentElement.removeEventListener('touchstart', onTouchStart, { capture: true });
+      panelContentElement.removeEventListener('touchmove', onTouchMove, { capture: true });
+      panelContentElement.removeEventListener('touchend', onTouchEnd, { capture: true });
+      panelContentElement.removeEventListener('touchcancel', onTouchEnd, { capture: true });
     };
   }, []);
 
