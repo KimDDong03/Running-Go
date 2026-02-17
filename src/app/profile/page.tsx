@@ -8,6 +8,15 @@ import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { ErrorState } from '@/components/ui/error-state';
 import { AdSlot } from '@/app/components/ads/AdSlot';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
@@ -19,6 +28,8 @@ export default function ProfilePage() {
   const { data, isLoading, isError, refetch } = trpc.profile.summary.useQuery();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isAvatarProcessing, setIsAvatarProcessing] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const updateAvatar = trpc.profile.updateAvatar.useMutation({
     onSuccess: async () => {
       toast.success(locale === 'en' ? 'Profile photo updated.' : '프로필 사진을 업데이트했어요');
@@ -26,6 +37,15 @@ export default function ProfilePage() {
     },
     onError: (error) => {
       toast.error(error.message || (locale === 'en' ? 'Failed to save profile photo.' : '프로필 사진 저장에 실패했습니다'));
+    },
+  });
+  const deleteAccount = trpc.profile.deleteAccount.useMutation({
+    onSuccess: async () => {
+      toast.success(isEnglish ? 'Account deleted.' : '회원 탈퇴가 완료되었습니다');
+      await signOut({ callbackUrl: '/' });
+    },
+    onError: (error) => {
+      toast.error(error.message || (isEnglish ? 'Failed to delete account.' : '회원 탈퇴에 실패했습니다'));
     },
   });
   const isEnglish = locale === 'en';
@@ -219,7 +239,7 @@ export default function ProfilePage() {
                 </div>
               )}
               {!data?.user.isGuest && (
-                <div>
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
                     className="rg-touch rg-press rounded-full"
@@ -229,6 +249,63 @@ export default function ProfilePage() {
                   >
                     {isEnglish ? 'Sign out' : '로그아웃'}
                   </Button>
+
+                  <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        className="rg-touch rg-press rounded-full"
+                      >
+                        {isEnglish ? 'Delete Account' : '회원 탈퇴'}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
+                      <DialogHeader>
+                        <DialogTitle className="text-slate-900">
+                          {isEnglish ? 'Delete account?' : '회원 탈퇴를 진행할까요?'}
+                        </DialogTitle>
+                        <DialogDescription className="text-slate-600">
+                          {isEnglish
+                            ? 'This action permanently removes your account data and cannot be undone. Type DELETE to continue.'
+                            : '탈퇴 시 계정 데이터가 영구 삭제되며 복구할 수 없습니다. 진행하려면 DELETE를 입력하세요.'}
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <input
+                        value={deleteConfirmText}
+                        onChange={(event) => setDeleteConfirmText(event.target.value)}
+                        placeholder="DELETE"
+                        className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                      />
+
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          className="rounded-full"
+                          onClick={() => {
+                            setIsDeleteDialogOpen(false);
+                            setDeleteConfirmText('');
+                          }}
+                        >
+                          {isEnglish ? 'Cancel' : '취소'}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="rounded-full"
+                          disabled={deleteConfirmText !== 'DELETE' || deleteAccount.isPending}
+                          onClick={() => {
+                            void deleteAccount.mutateAsync({ confirmText: deleteConfirmText }).then(() => {
+                              setDeleteConfirmText('');
+                            });
+                          }}
+                        >
+                          {deleteAccount.isPending
+                            ? (isEnglish ? 'Deleting...' : '탈퇴 처리 중...')
+                            : (isEnglish ? 'Delete' : '탈퇴하기')}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               )}
             </CardContent>

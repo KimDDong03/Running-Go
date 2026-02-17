@@ -21,6 +21,34 @@ const getOrCreateGuestUserId = async (userId: string | null) => {
 };
 
 export const profileRouter = createTRPCRouter({
+  deleteAccount: protectedProcedure
+    .input(z.object({ confirmText: z.string().trim() }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.confirmText !== 'DELETE') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: '확인 문구가 올바르지 않습니다',
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: ctx.userId },
+        select: { provider: true },
+      });
+
+      if (!user) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: '사용자를 찾을 수 없습니다' });
+      }
+
+      if (user.provider === 'guest') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '게스트 계정은 탈퇴할 수 없습니다' });
+      }
+
+      await prisma.user.delete({ where: { id: ctx.userId } });
+
+      return { success: true };
+    }),
+
   updateAvatar: protectedProcedure
     .input(z.object({ image: z.string().nullable() }))
     .mutation(async ({ input, ctx }) => {
