@@ -87,7 +87,7 @@ export default function CreateCourseDetailsPage() {
       });
 
       window.sessionStorage.removeItem('courseDraft');
-      router.push(`/courses/${result.id}`);
+      router.push(`/?focusCourseId=${result.id}`);
     } catch {
       toast.error(isEnglish ? 'Failed to save the course. Please try again.' : '코스를 저장하지 못했습니다. 다시 시도해주세요.');
     }

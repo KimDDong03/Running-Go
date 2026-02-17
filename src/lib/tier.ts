@@ -8,6 +8,7 @@ export type Tier = {
 }
 
 type TierTemplate = Omit<Tier, 'name'>;
+type TierLocale = 'ko' | 'en';
 
 const TIER_TEMPLATES: TierTemplate[] = [
   { level: 1, icon: '🌱', color: '#8B4513', threshold: 1, nextThreshold: 5 },
@@ -45,6 +46,30 @@ const CREATOR_NAMES = [
   '러닝고 설계왕',
 ];
 
+const COLLECTOR_NAMES_EN = [
+  'Seed Explorer',
+  'Bronze Explorer',
+  'Silver Explorer',
+  'Gold Explorer',
+  'Platinum Explorer',
+  'Diamond Explorer',
+  'Master Explorer',
+  'Grand Explorer',
+  'Running-Go Explorer King',
+];
+
+const CREATOR_NAMES_EN = [
+  'Seed Architect',
+  'Bronze Architect',
+  'Silver Architect',
+  'Gold Architect',
+  'Platinum Architect',
+  'Diamond Architect',
+  'Master Architect',
+  'Grand Architect',
+  'Running-Go Architect King',
+];
+
 const getTierIndexByCount = (count: number) => {
   if (count >= 500) return 8;
   if (count >= 350) return 7;
@@ -57,6 +82,10 @@ const getTierIndexByCount = (count: number) => {
   return 0;
 };
 
+const getTierNames = (koNames: string[], enNames: string[], locale: TierLocale) => {
+  return locale === 'en' ? enNames : koNames;
+};
+
 const buildTier = (count: number, names: string[]): Tier => {
   const index = getTierIndexByCount(count);
   const template = TIER_TEMPLATES[index];
@@ -66,8 +95,12 @@ const buildTier = (count: number, names: string[]): Tier => {
   };
 };
 
-export const getCollectorTier = (collectionCount: number): Tier => buildTier(collectionCount, COLLECTOR_NAMES);
+export const getCollectorTier = (collectionCount: number, locale: TierLocale = 'ko'): Tier => {
+  return buildTier(collectionCount, getTierNames(COLLECTOR_NAMES, COLLECTOR_NAMES_EN, locale));
+};
 
-export const getCreatorTier = (createdCount: number): Tier => buildTier(createdCount, CREATOR_NAMES);
+export const getCreatorTier = (createdCount: number, locale: TierLocale = 'ko'): Tier => {
+  return buildTier(createdCount, getTierNames(CREATOR_NAMES, CREATOR_NAMES_EN, locale));
+};
 
-export const getTier = (collectionCount: number): Tier => getCollectorTier(collectionCount);
+export const getTier = (collectionCount: number, locale: TierLocale = 'ko'): Tier => getCollectorTier(collectionCount, locale);

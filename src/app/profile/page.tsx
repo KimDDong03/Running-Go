@@ -51,8 +51,8 @@ export default function ProfilePage() {
     },
   });
   const isEnglish = locale === 'en';
-  const collectorTier = getCollectorTier(data?.stats.collectedCourses ?? 0);
-  const creatorTier = getCreatorTier(data?.stats.createdCourses ?? 0);
+  const collectorTier = getCollectorTier(data?.stats.collectedCourses ?? 0, isEnglish ? 'en' : 'ko');
+  const creatorTier = getCreatorTier(data?.stats.createdCourses ?? 0, isEnglish ? 'en' : 'ko');
   const collectorNextRemaining = collectorTier.nextThreshold
     ? Math.max(0, collectorTier.nextThreshold - (data?.stats.collectedCourses ?? 0))
     : 0;

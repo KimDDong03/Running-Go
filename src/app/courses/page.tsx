@@ -358,6 +358,7 @@ export default function CoursesPage() {
     const focusCourseId = params.get('focusCourseId');
     if (!focusCourseId) return;
 
+    setIsNearbyCourseMarkerVisible(true);
     setSelectedCourseId(focusCourseId);
 
     params.delete('focusCourseId');
@@ -597,7 +598,21 @@ export default function CoursesPage() {
       return;
     }
 
-    nearbyCourses?.courses.forEach((course) => {
+    const markerCourses = [...(nearbyCourses?.courses ?? [])];
+    if (selectedCourse && !markerCourses.some((course) => course.id === selectedCourse.id)) {
+      markerCourses.push({
+        id: selectedCourse.id,
+        title: selectedCourse.title,
+        centerLat: selectedCourse.centerLat,
+        centerLng: selectedCourse.centerLng,
+        totalDistance: selectedCourse.totalDistance,
+        estimatedTime: selectedCourse.estimatedTime,
+        difficulty: selectedCourse.difficulty,
+        distanceFromUserKm: 0,
+      });
+    }
+
+    markerCourses.forEach((course) => {
       const markerButton = document.createElement('button');
       markerButton.type = 'button';
       markerButton.className = [
@@ -623,7 +638,7 @@ export default function CoursesPage() {
 
       courseMarkersRef.current.push(marker);
     });
-  }, [isNearbyCourseMarkerVisible, nearbyCourses, selectedCourseId, viewMode]);
+  }, [isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
@@ -860,12 +875,6 @@ export default function CoursesPage() {
               <LocateFixed className="h-5 w-5" />
             </button>
 
-            {selectedCourseId && isSelectedCourseLoading && (
-              <div className="absolute top-14 right-3 rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600">
-                {isEnglish ? 'Loading course path...' : '코스 모양 불러오는 중...'}
-              </div>
-            )}
-
             {selectedCourse && (
               <div className="absolute left-3 right-3 z-20" style={{ bottom: panelHeight + 12 }}>
                 <Link href={`/run?courseId=${selectedCourse.id}`}>
@@ -977,6 +986,7 @@ export default function CoursesPage() {
                           type="button"
                           className="w-full text-left"
                           onClick={() => {
+                            setIsNearbyCourseMarkerVisible(true);
                             setSelectedCourseId((current) => (current === course.id ? null : course.id));
                           }}
                         >

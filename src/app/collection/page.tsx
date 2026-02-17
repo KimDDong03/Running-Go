@@ -13,7 +13,15 @@ import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, MapPin } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ChevronLeft, MapPin, Trash2 } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 import { loadMapSdk, type MapLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
@@ -35,6 +43,7 @@ export default function CollectionPage() {
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
   const { data: session, status: sessionStatus } = useSession();
+  const utils = trpc.useUtils();
   const { data, isLoading, isError, error, refetch } = trpc.collection.listByUser.useQuery();
   const { data: createdData, isLoading: isCreatedLoading } = trpc.course.listByUser.useQuery(
     { userId: session?.user?.id ?? '', limit: 50 },
@@ -46,6 +55,7 @@ export default function CollectionPage() {
   const [viewType, setViewType] = useState<'collected' | 'created'>('collected');
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [isRoutePreviewOpen, setIsRoutePreviewOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const previewMapContainerRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const previewMapRef = useRef<MapLike | null>(null);
@@ -58,6 +68,27 @@ export default function CollectionPage() {
     if (difficulty === 'MEDIUM') return 'Medium';
     return 'Hard';
   };
+
+  const deleteCourse = trpc.course.delete.useMutation({
+    onSuccess: async (result, variables) => {
+      toast.success(
+        result.deletedCompletely
+          ? (isEnglish ? 'Course deleted.' : '코스를 삭제했습니다')
+          : (isEnglish ? 'Course was hidden because collection records exist.' : '수집 기록이 있어 코스를 삭제 상태로 전환했습니다')
+      );
+      setSelectedCourseIds((prev) => prev.filter((id) => id !== variables.id));
+      await Promise.all([
+        utils.collection.listByUser.invalidate(),
+        utils.course.listByUser.invalidate(),
+        utils.course.list.invalidate(),
+        utils.course.byId.invalidate({ id: variables.id }),
+      ]);
+      setDeleteTarget(null);
+    },
+    onError: (mutationError) => {
+      toast.error(mutationError.message || (isEnglish ? 'Failed to delete course.' : '코스를 삭제하지 못했습니다'));
+    },
+  });
 
   type RouteCourse = {
     id: string;
@@ -409,11 +440,28 @@ export default function CollectionPage() {
                 return (
                 <Link
                   key={course.id}
-                  href={`/courses/${course.id}`}
+                  href={viewType === 'created' ? `/?focusCourseId=${course.id}` : `/courses/${course.id}`}
                   className="block w-full text-left"
                 >
                   <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
                     <div className="relative h-28 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+                      {viewType === 'created' && (
+                        <button
+                          type="button"
+                          className="absolute left-2 top-2 z-20 inline-flex h-6 items-center gap-1 rounded-full border border-red-200 bg-white/95 px-2 text-[10px] font-semibold text-red-600"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (deleteCourse.isPending) {
+                              return;
+                            }
+                            setDeleteTarget({ id: course.id, title: course.title });
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          {isEnglish ? 'Delete' : '삭제'}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={`absolute right-2 top-2 z-20 h-6 min-w-6 rounded-full border px-1 text-[10px] font-semibold ${isSelected ? 'border-sky-300 bg-sky-500 text-white' : 'border-white/80 bg-white/90 text-slate-700'}`}
@@ -479,6 +527,49 @@ export default function CollectionPage() {
           </div>
         )}
       </main>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
+        if (!open && !deleteCourse.isPending) {
+          setDeleteTarget(null);
+        }
+      }}>
+        <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">
+              {isEnglish ? 'Delete this course?' : '코스를 삭제할까요?'}
+            </DialogTitle>
+            <DialogDescription className="text-slate-600">
+              {isEnglish
+                ? `"${deleteTarget?.title ?? ''}" will be removed. This action cannot be undone.`
+                : `"${deleteTarget?.title ?? ''}" 코스를 삭제합니다. 이 작업은 되돌릴 수 없습니다.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              disabled={deleteCourse.isPending}
+              onClick={() => setDeleteTarget(null)}
+            >
+              {isEnglish ? 'Cancel' : '취소'}
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-full"
+              disabled={!deleteTarget || deleteCourse.isPending}
+              onClick={() => {
+                if (!deleteTarget) return;
+                deleteCourse.mutate({ id: deleteTarget.id });
+              }}
+            >
+              {deleteCourse.isPending
+                ? (isEnglish ? 'Deleting...' : '삭제 중...')
+                : (isEnglish ? 'Delete' : '삭제하기')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
