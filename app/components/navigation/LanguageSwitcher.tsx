@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LOCALE_COOKIE_KEY, type AppLocale } from '@/lib/i18n/constants';
@@ -9,8 +9,13 @@ import { useLocale } from '@/app/components/providers/LocaleProvider';
 const LOCALE_ORDER: AppLocale[] = ['ko', 'en'];
 
 export function LanguageSwitcher() {
+  const pathname = usePathname();
   const router = useRouter();
   const { locale, t } = useLocale();
+
+  if (pathname.startsWith('/create')) {
+    return null;
+  }
 
   const currentIndex = LOCALE_ORDER.indexOf(locale);
   const nextLocale = LOCALE_ORDER[(currentIndex + 1) % LOCALE_ORDER.length];
