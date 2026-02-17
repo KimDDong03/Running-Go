@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
+import Link from "next/link";
 import { Toaster } from "sonner";
 import "./globals.css";
 import { TRPCProvider } from "./components/providers/TRPCProvider";
@@ -36,7 +37,7 @@ export const viewport: Viewport = {
   themeColor: '#0ea5e9',
 };
 
-const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID ?? 'GTM-WB4N6JXM';
+const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? 'G-CK58GFWQ9E';
 
 export default async function RootLayout({
   children,
@@ -45,28 +46,37 @@ export default async function RootLayout({
 }>) {
   const locale = await resolveRequestLocale();
   const messages = getMessages(locale);
+  const footerCopy = locale === 'ko'
+    ? {
+        about: '서비스 소개',
+        contact: '문의하기',
+        privacy: '개인정보처리방침',
+        cookies: '쿠키 정책',
+        terms: '이용약관',
+      }
+    : {
+        about: 'About',
+        contact: 'Contact',
+        privacy: 'Privacy',
+        cookies: 'Cookies',
+        terms: 'Terms',
+      };
 
   return (
     <html lang={locale}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Script id="gtm-bootstrap" strategy="afterInteractive">
-          {`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','${GTM_ID}');`}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="ga-gtag" strategy="afterInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_MEASUREMENT_ID}');`}
         </Script>
-        <noscript>
-          <iframe
-            src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
-            title="Google Tag Manager"
-            height="0"
-            width="0"
-            style={{ display: 'none', visibility: 'hidden' }}
-          />
-        </noscript>
         <AuthProvider>
           <TRPCProvider>
             <LocaleProvider locale={locale} messages={messages}>
@@ -80,6 +90,15 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
               <div className="relative mx-auto min-h-screen w-full max-w-[1200px]">
                 {children}
               </div>
+              <footer className="mx-auto w-full max-w-[1200px] px-4 pb-28 pt-6 text-center text-xs text-slate-500">
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <Link href="/about" className="underline underline-offset-2">{footerCopy.about}</Link>
+                  <Link href="/contact" className="underline underline-offset-2">{footerCopy.contact}</Link>
+                  <Link href="/privacy" className="underline underline-offset-2">{footerCopy.privacy}</Link>
+                  <Link href="/cookies" className="underline underline-offset-2">{footerCopy.cookies}</Link>
+                  <Link href="/terms" className="underline underline-offset-2">{footerCopy.terms}</Link>
+                </div>
+              </footer>
               <ConsentBanner />
               <BottomNav />
               <Toaster richColors position="top-center" closeButton />
