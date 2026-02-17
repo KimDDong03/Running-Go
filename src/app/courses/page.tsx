@@ -176,7 +176,6 @@ export default function CoursesPage() {
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const panelScrollDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; isDragging: boolean; pointerId: number } | null>(null);
   const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
 
@@ -281,64 +280,6 @@ export default function CoursesPage() {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     snapPanelHeight(clampedHeight);
-  };
-
-  const onPanelContentPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === 'mouse') {
-      return;
-    }
-
-    panelScrollDragStateRef.current = {
-      startY: event.clientY,
-      startHeight: panelHeight,
-      lastHeight: panelHeight,
-      isDragging: false,
-      pointerId: event.pointerId,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPanelContentPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const dragState = panelScrollDragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-
-    const delta = dragState.startY - event.clientY;
-    const isContentAtTop = event.currentTarget.scrollTop <= 0;
-    if (!dragState.isDragging && (!isContentAtTop || delta >= -8)) {
-      return;
-    }
-
-    event.preventDefault();
-
-    const { min, max } = getPanelSnapHeights();
-    const nextHeight = dragState.startHeight + delta;
-    const clampedHeight = Math.max(min, Math.min(max, nextHeight));
-
-    dragState.isDragging = true;
-    dragState.lastHeight = clampedHeight;
-    setIsPanelDragging(true);
-    setPanelHeight(clampedHeight);
-  };
-
-  const onPanelContentPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const dragState = panelScrollDragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) {
-      return;
-    }
-
-    panelScrollDragStateRef.current = null;
-
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    if (!dragState.isDragging) {
-      setIsPanelDragging(false);
-      return;
-    }
-
-    setIsPanelDragging(false);
-    snapPanelHeight(dragState.lastHeight);
   };
 
   const collapsePanelToMin = () => {
@@ -682,9 +623,9 @@ export default function CoursesPage() {
       selectedOutlinePolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#ffffff',
+        strokeColor: '#22c55e',
         strokeWeight: 8,
-        strokeOpacity: 0.78,
+        strokeOpacity: 0.45,
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
         clickable: false,
@@ -928,12 +869,7 @@ export default function CoursesPage() {
                 style={{
                   WebkitOverflowScrolling: 'touch',
                   overscrollBehaviorY: 'contain',
-                  touchAction: 'pan-y',
                 }}
-                onPointerDown={onPanelContentPointerDown}
-                onPointerMove={onPanelContentPointerMove}
-                onPointerUp={onPanelContentPointerEnd}
-                onPointerCancel={onPanelContentPointerEnd}
               >
                 <div className="mb-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">

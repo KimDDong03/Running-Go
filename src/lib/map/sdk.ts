@@ -175,6 +175,15 @@ class AdapterPolyline implements MapPolylineLike {
   private readonly color: string;
   private readonly weight: number;
   private readonly opacity: number;
+  private pendingAttachMap: maplibregl.Map | null = null;
+  private readonly handleDeferredAttach = () => {
+    const currentMap = this.currentMap;
+    const pendingMap = this.pendingAttachMap;
+    this.pendingAttachMap = null;
+    if (!currentMap || !pendingMap) return;
+    if (currentMap.getMapLibreMap() !== pendingMap) return;
+    this.attach(currentMap);
+  };
   constructor(options: { map?: MapLike; path: MapLatLng[]; strokeColor: string; strokeWeight: number; strokeOpacity?: number }) {
     this.currentMap = options.map instanceof AdapterMap ? options.map : null;
     this.path = options.path;
@@ -208,6 +217,14 @@ class AdapterPolyline implements MapPolylineLike {
   }
   private attach(map: AdapterMap) {
     const m = map.getMapLibreMap();
+    if (!m.isStyleLoaded()) {
+      if (this.pendingAttachMap !== m) {
+        this.pendingAttachMap = m;
+        m.once('load', this.handleDeferredAttach);
+      }
+      return;
+    }
+
     if (!m.getSource(this.sourceId)) m.addSource(this.sourceId, { type: 'geojson', data: this.toGeoJson() });
     if (!m.getLayer(this.layerId)) {
       m.addLayer({
@@ -221,6 +238,10 @@ class AdapterPolyline implements MapPolylineLike {
   }
   private detach(map: AdapterMap) {
     const m = map.getMapLibreMap();
+    if (this.pendingAttachMap === m) {
+      m.off('load', this.handleDeferredAttach);
+      this.pendingAttachMap = null;
+    }
     if (m.getLayer(this.layerId)) m.removeLayer(this.layerId);
     if (m.getSource(this.sourceId)) m.removeSource(this.sourceId);
   }
@@ -368,6 +389,28 @@ const fetchMapboxStyle = async (mapboxToken: string) => {
   return sanitizeMapboxStyle(style, mapboxToken);
 };
 
+const createFallbackStyle = () => ({
+  version: 8,
+  name: 'running-go-fallback',
+  sources: {
+    'openstreetmap-raster': {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    {
+      id: 'osm-raster',
+      type: 'raster',
+      source: 'openstreetmap-raster',
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+});
+
 const createMapSdk = (preparedStyle: Record<string, unknown>): MapSdkApi => {
   const Event: MapEventApi = {
     addListener(target: object, eventName: string, handler: (...args: unknown[]) => void) {
@@ -460,26 +503,30 @@ let sdkLoaderPromise: Promise<MapSdkApi> | null = null;
 export const loadMapSdk = (): Promise<MapSdkApi> => {
   if (sdkLoaderPromise) return sdkLoaderPromise;
 
-  sdkLoaderPromise = new Promise<MapSdkApi>((resolve, reject) => {
+  sdkLoaderPromise = (async () => {
     if (typeof window === 'undefined') {
-      reject(new Error('지도 SDK는 브라우저에서만 로드할 수 있습니다'));
-      return;
-    }
-
-    const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
-    if (!token) {
-      reject(new Error('NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN 환경 변수가 필요합니다'));
-      return;
+      throw new Error('지도 SDK는 브라우저에서만 로드할 수 있습니다');
     }
 
     ensureMapLibreStyle();
-    void fetchMapboxStyle(token)
-      .then((style) => {
-        resolve(createMapSdk(style));
-      })
-      .catch((error) => {
-        reject(error);
-      });
+
+    const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
+    let style: Record<string, unknown>;
+
+    if (token) {
+      try {
+        style = await fetchMapboxStyle(token);
+      } catch {
+        style = createFallbackStyle();
+      }
+    } else {
+      style = createFallbackStyle();
+    }
+
+    return createMapSdk(style);
+  })().catch((error) => {
+    sdkLoaderPromise = null;
+    throw error;
   });
 
   return sdkLoaderPromise;

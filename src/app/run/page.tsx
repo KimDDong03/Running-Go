@@ -101,7 +101,30 @@ function RunPageContent() {
 
   const courseWaypoints = useMemo(() => {
     if (!course || !Array.isArray(course.waypoints)) return [] as { lat: number; lng: number; order: number }[];
-    return [...(course.waypoints as { lat: number; lng: number; order: number }[])].sort((a, b) => a.order - b.order);
+    const normalized = course.waypoints
+      .map((point) => {
+        if (!point || typeof point !== 'object') return null;
+
+        const lat = (point as { lat?: unknown }).lat;
+        const lng = (point as { lng?: unknown }).lng;
+        const order = (point as { order?: unknown }).order;
+
+        if (
+          typeof lat !== 'number'
+          || typeof lng !== 'number'
+          || typeof order !== 'number'
+          || !Number.isFinite(lat)
+          || !Number.isFinite(lng)
+          || !Number.isFinite(order)
+        ) {
+          return null;
+        }
+
+        return { lat, lng, order };
+      })
+      .filter((point): point is { lat: number; lng: number; order: number } => Boolean(point));
+
+    return normalized.sort((a, b) => a.order - b.order);
   }, [course]);
 
   useEffect(() => {
@@ -249,9 +272,9 @@ function RunPageContent() {
       coursePathOutlineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#ffffff',
+        strokeColor: '#22c55e',
         strokeWeight: 8,
-        strokeOpacity: 0.75,
+        strokeOpacity: 0.45,
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
         clickable: false,
@@ -330,7 +353,8 @@ function RunPageContent() {
           );
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('[run] map load failed', error);
         toast.error(isEnglish ? 'Failed to load map.' : '지도를 불러오지 못했습니다');
       });
 
