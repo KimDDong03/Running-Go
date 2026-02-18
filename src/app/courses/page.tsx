@@ -3,6 +3,9 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { toast } from 'sonner';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { loadMapSdk, type MapLike, type MapMarkerLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
@@ -36,9 +39,12 @@ const DEFAULT_CENTER = {
   lng: 126.978,
 };
 
-const INITIAL_PANEL_HEIGHT = 180;
+const INITIAL_PANEL_HEIGHT = 108;
 const ONBOARDING_STORAGE_KEY = 'running-go:onboarding:v1';
 const LAST_LOCATION_STORAGE_KEY = 'running-go:last-location:v1';
+const MAP_VIEWPORT_STORAGE_KEY = 'running-go:map-viewport:v1';
+
+type HeadingMode = 'off' | 'cone' | 'rotate';
 
 const ONBOARDING_STEPS_KO = [
   {
@@ -80,9 +86,10 @@ const ONBOARDING_STEPS_EN = [
 
 const getPanelSnapHeights = () => {
   const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 900;
-  const min = 180;
-  const mid = Math.round(viewportHeight * 0.42);
-  const max = Math.min(Math.round(viewportHeight * 0.62), 560);
+  const min = 108;
+  const maxCandidate = Math.min(Math.round(viewportHeight * 0.9), viewportHeight - 92);
+  const max = Math.max(min + 180, maxCandidate);
+  const mid = Math.round((min + max) / 2);
 
   return { min, mid, max };
 };
@@ -148,7 +155,14 @@ const storeLocation = (location: { lat: number; lng: number }) => {
   window.localStorage.setItem(LAST_LOCATION_STORAGE_KEY, JSON.stringify(location));
 };
 
+const storeMapViewport = (viewport: { lat: number; lng: number; zoom: number }) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(MAP_VIEWPORT_STORAGE_KEY, JSON.stringify(viewport));
+};
+
 export default function CoursesPage() {
+  const router = useRouter();
+  const { status: sessionStatus } = useSession();
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
   const [viewMode] = useState<'list' | 'map'>('map');
@@ -159,6 +173,7 @@ export default function CoursesPage() {
   const [panelHeight, setPanelHeight] = useState<number>(INITIAL_PANEL_HEIGHT);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
   const [isNearbyCourseMarkerVisible, setIsNearbyCourseMarkerVisible] = useState(false);
+  const [isMarkerButtonVisible, setIsMarkerButtonVisible] = useState(true);
   const [nearbySearch, setNearbySearch] = useState<{ lat: number; lng: number; radiusKm: number }>({
     lat: DEFAULT_CENTER.lat,
     lng: DEFAULT_CENTER.lng,
@@ -168,6 +183,7 @@ export default function CoursesPage() {
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const onboardingSteps = isEnglish ? ONBOARDING_STEPS_EN : ONBOARDING_STEPS_KO;
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const panelSectionRef = useRef<HTMLElement>(null);
   const panelContentRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const mapRef = useRef<MapLike | null>(null);
@@ -177,10 +193,210 @@ export default function CoursesPage() {
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
   const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const panelContentDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; startScrollTop: number; pullDistance: number; isDragging: boolean } | null>(null);
+  const panelTouchDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; startScrollTop: number; pullDistance: number; isDragging: boolean } | null>(null);
   const panelHeightRef = useRef<number>(INITIAL_PANEL_HEIGHT);
-  const nearbySearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const lastNearbyViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
+  const markerReshowOnMoveRef = useRef(false);
+  const markerReshowStartViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
+  const headingModeRef = useRef<HeadingMode>('off');
+  const headingConeMarkerRef = useRef<MapMarkerLike | null>(null);
+  const headingConeElementRef = useRef<HTMLElement | null>(null);
+  const headingListenerAttachedRef = useRef(false);
+  const headingListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
+  const currentHeadingRef = useRef<number>(0);
+
+  const normalizeHeading = (heading: number) => {
+    const normalized = heading % 360;
+    return normalized < 0 ? normalized + 360 : normalized;
+  };
+
+  const resolveHeading = (event: DeviceOrientationEvent) => {
+    const iOSEvent = event as DeviceOrientationEvent & { webkitCompassHeading?: number };
+    if (typeof iOSEvent.webkitCompassHeading === 'number' && Number.isFinite(iOSEvent.webkitCompassHeading)) {
+      return normalizeHeading(iOSEvent.webkitCompassHeading);
+    }
+    if (typeof event.alpha === 'number' && Number.isFinite(event.alpha)) {
+      return normalizeHeading(360 - event.alpha);
+    }
+    return null;
+  };
+
+  const createHeadingConeElement = () => {
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+    wrapper.style.width = '24px';
+    wrapper.style.height = '24px';
+    wrapper.style.pointerEvents = 'none';
+
+    const coneGroup = document.createElement('span');
+    coneGroup.style.position = 'absolute';
+    coneGroup.style.left = '50%';
+    coneGroup.style.top = '50%';
+    coneGroup.style.width = '14px';
+    coneGroup.style.height = '14px';
+    coneGroup.style.transform = 'translate(-50%, -50%) rotate(0deg)';
+    coneGroup.style.transformOrigin = '50% 50%';
+
+    const coneHead = document.createElement('span');
+    coneHead.style.position = 'absolute';
+    coneHead.style.left = '50%';
+    coneHead.style.top = '0';
+    coneHead.style.width = '0';
+    coneHead.style.height = '0';
+    coneHead.style.borderLeft = '5px solid transparent';
+    coneHead.style.borderRight = '5px solid transparent';
+    coneHead.style.borderBottom = '8px solid rgba(14, 165, 233, 0.96)';
+    coneHead.style.transform = 'translateX(-50%)';
+
+    const coneTail = document.createElement('span');
+    coneTail.style.position = 'absolute';
+    coneTail.style.left = '50%';
+    coneTail.style.top = '6px';
+    coneTail.style.width = '2px';
+    coneTail.style.height = '6px';
+    coneTail.style.background = 'rgba(14, 165, 233, 0.9)';
+    coneTail.style.borderRadius = '9999px';
+    coneTail.style.transform = 'translateX(-50%)';
+    coneTail.style.boxShadow = '0 3px 6px rgba(2,132,199,0.35)';
+
+    coneGroup.appendChild(coneHead);
+    coneGroup.appendChild(coneTail);
+
+    wrapper.appendChild(coneGroup);
+    headingConeElementRef.current = coneGroup;
+    return wrapper;
+  };
+
+  const updateHeadingVisual = (heading: number) => {
+    const mapInstance = mapRef.current;
+    if (!mapInstance) return;
+
+    const currentMarkerPosition = userMarkerRef.current?.getPosition?.();
+    if (currentMarkerPosition && headingConeMarkerRef.current) {
+      headingConeMarkerRef.current.setPosition(currentMarkerPosition);
+    }
+
+    currentHeadingRef.current = heading;
+    if (headingConeElementRef.current) {
+      headingConeElementRef.current.style.transform = `translateX(-50%) rotate(${heading}deg)`;
+    }
+    if (headingModeRef.current === 'rotate') {
+      mapInstance.setBearing?.(heading);
+    }
+  };
+
+  const applyHeadingMode = (mode: HeadingMode) => {
+    const mapInstance = mapRef.current;
+    const sdk = mapSdkRef.current;
+    if (!mapInstance || !sdk) return;
+
+    headingModeRef.current = mode;
+
+    if (mode === 'off') {
+      headingConeMarkerRef.current?.setMap(null);
+      headingConeMarkerRef.current = null;
+      headingConeElementRef.current = null;
+      mapInstance.setBearing?.(0);
+      return;
+    }
+
+    if (!userLocation) return;
+
+    const markerPosition = userMarkerRef.current?.getPosition?.()
+      ?? (userLocation ? toLatLng(userLocation.lat, userLocation.lng) : null);
+    if (!markerPosition) return;
+
+    if (!headingConeMarkerRef.current) {
+      headingConeMarkerRef.current = new sdk.Marker({
+        map: mapInstance,
+        position: markerPosition,
+        icon: {
+          content: createHeadingConeElement(),
+          size: new sdk.Size(24, 24),
+          anchor: new sdk.Point(12, 12),
+        },
+      });
+    } else {
+      headingConeMarkerRef.current.setMap(mapInstance);
+      headingConeMarkerRef.current.setPosition(markerPosition);
+    }
+
+    if (mode === 'cone') {
+      mapInstance.setBearing?.(0);
+    }
+
+    updateHeadingVisual(currentHeadingRef.current);
+  };
+
+  const ensureOrientationListener = async () => {
+    if (typeof window === 'undefined' || headingListenerAttachedRef.current) {
+      return true;
+    }
+
+    if (typeof DeviceOrientationEvent === 'undefined') {
+      return false;
+    }
+
+    const requestPermission = (DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    }).requestPermission;
+
+    if (requestPermission) {
+      try {
+        const permission = await requestPermission();
+        if (permission !== 'granted') {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+    }
+
+    const onDeviceOrientation = (event: DeviceOrientationEvent) => {
+      const heading = resolveHeading(event);
+      if (heading === null) return;
+      updateHeadingVisual(heading);
+    };
+
+    headingListenerRef.current = onDeviceOrientation;
+    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+    headingListenerAttachedRef.current = true;
+
+    return true;
+  };
+
+  const syncNearbySearchFromMap = (mapInstance: MapLike) => {
+    const center = mapInstance.getCenter();
+    const bounds = mapInstance.getBounds();
+    const northEast = bounds.getNE();
+    const radiusKmFromViewport = calculateDistanceKm(
+      center.lat(),
+      center.lng(),
+      northEast.lat(),
+      northEast.lng()
+    );
+
+    setNearbySearch({
+      lat: center.lat(),
+      lng: center.lng(),
+      radiusKm: Math.min(20, Math.max(1.5, radiusKmFromViewport)),
+    });
+  };
+
+  const syncMarkerViewport = () => {
+    const mapInstance = mapRef.current;
+    if (!mapInstance) return;
+
+    syncNearbySearchFromMap(mapInstance);
+    const center = mapInstance.getCenter();
+    markerReshowOnMoveRef.current = true;
+    markerReshowStartViewportRef.current = {
+      lat: center.lat(),
+      lng: center.lng(),
+      zoom: mapInstance.getZoom(),
+    };
+    setIsNearbyCourseMarkerVisible(true);
+    setIsMarkerButtonVisible(false);
+  };
 
   const courseListInput = useMemo(() => {
     if (listSort === 'NEAREST' && userLocation) {
@@ -254,12 +470,14 @@ export default function CoursesPage() {
   };
 
   const onPanelHandlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== 'mouse') return;
     panelDragStateRef.current = { startY: event.clientY, startHeight: panelHeight };
     setIsPanelDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onPanelHandlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== 'mouse') return;
     if (!panelDragStateRef.current) return;
 
     const { min, max } = getPanelSnapHeights();
@@ -270,11 +488,13 @@ export default function CoursesPage() {
   };
 
   const onPanelHandlePointerEnd = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== 'mouse') return;
     if (!panelDragStateRef.current) return;
 
-    const { min, max } = getPanelSnapHeights();
-    const delta = panelDragStateRef.current.startY - event.clientY;
-    const nextHeight = panelDragStateRef.current.startHeight + delta;
+    const { min, mid, max } = getPanelSnapHeights();
+    const startHeight = panelDragStateRef.current.startHeight;
+    const delta = startHeight ? panelDragStateRef.current.startY - event.clientY : 0;
+    const nextHeight = startHeight + delta;
     const clampedHeight = Math.max(min, Math.min(max, nextHeight));
 
     panelDragStateRef.current = null;
@@ -282,6 +502,12 @@ export default function CoursesPage() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+
+    if (startHeight <= min + 16 && clampedHeight > startHeight + 24) {
+      setPanelHeight(mid);
+      return;
+    }
+
     snapPanelHeight(clampedHeight);
   };
 
@@ -295,13 +521,18 @@ export default function CoursesPage() {
   }, [panelHeight]);
 
   useEffect(() => {
+    const panelSectionElement = panelSectionRef.current;
     const panelContentElement = panelContentRef.current;
-    if (!panelContentElement) return;
+    if (!panelSectionElement || !panelContentElement) return;
 
     const onTouchStart = (event: TouchEvent) => {
       if (event.touches.length !== 1) return;
-      panelContentDragStateRef.current = {
-        startY: event.touches[0]?.clientY ?? 0,
+
+      const touch = event.touches[0];
+      if (!touch) return;
+
+      panelTouchDragStateRef.current = {
+        startY: touch.clientY,
         startHeight: panelHeightRef.current,
         lastHeight: panelHeightRef.current,
         startScrollTop: panelContentElement.scrollTop,
@@ -311,20 +542,35 @@ export default function CoursesPage() {
     };
 
     const onTouchMove = (event: TouchEvent) => {
-      const dragState = panelContentDragStateRef.current;
+      const dragState = panelTouchDragStateRef.current;
       if (!dragState || event.touches.length !== 1) return;
 
       const touch = event.touches[0];
       if (!touch) return;
 
       const pullDistance = touch.clientY - dragState.startY;
+      dragState.pullDistance = Math.max(dragState.pullDistance, pullDistance);
       const isContentAtTop = panelContentElement.scrollTop <= 2;
       const startedAtTop = dragState.startScrollTop <= 2;
 
       if (!dragState.isDragging) {
-        if ((!isContentAtTop && !startedAtTop) || pullDistance <= 4) {
+        const isUpwardDrag = pullDistance < -12;
+        const isDownwardDrag = pullDistance > 12;
+        const { max } = getPanelSnapHeights();
+        const isPanelNearMax = dragState.startHeight >= max - 8;
+
+        if (!isUpwardDrag && !isDownwardDrag) {
           return;
         }
+
+        if (isUpwardDrag && (isPanelNearMax || (!isContentAtTop && !startedAtTop))) {
+          return;
+        }
+
+        if (isDownwardDrag && !isContentAtTop && !startedAtTop) {
+          return;
+        }
+
         dragState.isDragging = true;
         setIsPanelDragging(true);
         panelContentElement.style.overflowY = 'hidden';
@@ -337,16 +583,26 @@ export default function CoursesPage() {
       const { min, max } = getPanelSnapHeights();
       const nextHeight = dragState.startHeight - pullDistance;
       const clampedHeight = Math.max(min, Math.min(max, nextHeight));
-      dragState.pullDistance = pullDistance;
       dragState.lastHeight = clampedHeight;
       setPanelHeight(clampedHeight);
     };
 
     const onTouchEnd = () => {
-      const dragState = panelContentDragStateRef.current;
-      panelContentDragStateRef.current = null;
+      const dragState = panelTouchDragStateRef.current;
+      panelTouchDragStateRef.current = null;
       panelContentElement.style.overflowY = '';
-      if (!dragState || !dragState.isDragging) {
+
+      if (!dragState) {
+        setIsPanelDragging(false);
+        return;
+      }
+
+      if (!dragState.isDragging) {
+        if (dragState.pullDistance > 36 && panelContentElement.scrollTop <= 2) {
+          const { min, mid } = getPanelSnapHeights();
+          const currentHeight = panelHeightRef.current;
+          setPanelHeight(currentHeight > mid ? mid : min);
+        }
         setIsPanelDragging(false);
         return;
       }
@@ -358,23 +614,27 @@ export default function CoursesPage() {
         return Math.abs(value - dragState.lastHeight) < Math.abs(closest - dragState.lastHeight) ? value : closest;
       }, candidates[0]);
 
-      if (dragState.pullDistance > 0 && nearest >= dragState.startHeight) {
+      if (dragState.startHeight <= min + 16 && dragState.lastHeight > dragState.startHeight + 24) {
+        nearest = mid;
+      }
+
+      if (dragState.pullDistance > 12 && nearest >= dragState.startHeight) {
         nearest = dragState.startHeight > mid ? mid : min;
       }
 
       setPanelHeight(nearest);
     };
 
-    panelContentElement.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
-    panelContentElement.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
-    panelContentElement.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
-    panelContentElement.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
+    panelSectionElement.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    panelSectionElement.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+    panelSectionElement.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    panelSectionElement.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
 
     return () => {
-      panelContentElement.removeEventListener('touchstart', onTouchStart, { capture: true });
-      panelContentElement.removeEventListener('touchmove', onTouchMove, { capture: true });
-      panelContentElement.removeEventListener('touchend', onTouchEnd, { capture: true });
-      panelContentElement.removeEventListener('touchcancel', onTouchEnd, { capture: true });
+      panelSectionElement.removeEventListener('touchstart', onTouchStart, { capture: true });
+      panelSectionElement.removeEventListener('touchmove', onTouchMove, { capture: true });
+      panelSectionElement.removeEventListener('touchend', onTouchEnd, { capture: true });
+      panelSectionElement.removeEventListener('touchcancel', onTouchEnd, { capture: true });
     };
   }, []);
 
@@ -414,7 +674,7 @@ export default function CoursesPage() {
   }, []);
 
   useEffect(() => {
-    if ((viewMode !== 'map' && listSort !== 'NEAREST') || userLocation) return;
+    if (viewMode !== 'map' || listSort !== 'NEAREST' || userLocation) return;
 
     if (!navigator.geolocation) {
       queueMicrotask(() => {
@@ -514,71 +774,40 @@ export default function CoursesPage() {
           userMarkerImageRef.current = markerImage;
         }
 
-        const syncNearbySearchWithViewport = (force = false) => {
-          const center = mapInstance.getCenter();
-          const bounds = mapInstance.getBounds();
-          const northEast = bounds.getNE();
-          const radiusKmFromViewport = calculateDistanceKm(
-            center.lat(),
-            center.lng(),
-            northEast.lat(),
-            northEast.lng()
-          );
-
-          const nextZoom = mapInstance.getZoom();
-          const previousViewport = lastNearbyViewportRef.current;
-
-          if (!force && previousViewport) {
-            const movedDistanceKm = calculateDistanceKm(
-              previousViewport.lat,
-              previousViewport.lng,
-              center.lat(),
-              center.lng()
-            );
-            const zoomDelta = Math.abs(nextZoom - previousViewport.zoom);
-
-            if (movedDistanceKm < 0.3 && zoomDelta < 0.8) {
-              return;
-            }
-          }
-
-          lastNearbyViewportRef.current = {
-            lat: center.lat(),
-            lng: center.lng(),
-            zoom: nextZoom,
-          };
-
-          setNearbySearch({
-            lat: center.lat(),
-            lng: center.lng(),
-            radiusKm: Math.min(20, Math.max(1.5, radiusKmFromViewport)),
-          });
-        };
-
-        const scheduleNearbySearchSync = (force = false) => {
-          if (nearbySearchDebounceRef.current) {
-            clearTimeout(nearbySearchDebounceRef.current);
-            nearbySearchDebounceRef.current = null;
-          }
-
-          if (force) {
-            syncNearbySearchWithViewport(true);
-            return;
-          }
-
-          nearbySearchDebounceRef.current = setTimeout(() => {
-            syncNearbySearchWithViewport(false);
-          }, 500);
-        };
-
         const handleMapDragStart = () => {
           if (panelDragStateRef.current) return;
           collapsePanelToMin();
         };
 
+        const handleMapIdle = () => {
+          const center = mapInstance.getCenter();
+          storeMapViewport({
+            lat: center.lat(),
+            lng: center.lng(),
+            zoom: mapInstance.getZoom(),
+          });
+
+          if (markerReshowOnMoveRef.current && markerReshowStartViewportRef.current) {
+            const startViewport = markerReshowStartViewportRef.current;
+            const movedDistanceKm = calculateDistanceKm(
+              startViewport.lat,
+              startViewport.lng,
+              center.lat(),
+              center.lng()
+            );
+            const zoomDelta = Math.abs(mapInstance.getZoom() - startViewport.zoom);
+
+            if (movedDistanceKm >= 0.05 || zoomDelta >= 0.2) {
+              setIsMarkerButtonVisible(true);
+              markerReshowOnMoveRef.current = false;
+              markerReshowStartViewportRef.current = null;
+            }
+          }
+        };
+
         dragListener = sdk.Event.addListener(mapInstance, 'dragstart', handleMapDragStart);
-        idleListener = sdk.Event.addListener(mapInstance, 'idle', () => scheduleNearbySearchSync(false));
-        scheduleNearbySearchSync(true);
+        idleListener = sdk.Event.addListener(mapInstance, 'idle', handleMapIdle);
+        handleMapIdle();
       })
       .catch(() => {
         setLocationError(isEnglish ? 'Failed to load map. Please try again shortly.' : '지도를 불러오지 못했습니다. 잠시 후 다시 시도해주세요');
@@ -592,12 +821,19 @@ export default function CoursesPage() {
       if (mapSdkRef.current && idleListener) {
         mapSdkRef.current.Event.removeListener(idleListener);
       }
-      if (nearbySearchDebounceRef.current) {
-        clearTimeout(nearbySearchDebounceRef.current);
-        nearbySearchDebounceRef.current = null;
+      if (typeof window !== 'undefined' && headingListenerAttachedRef.current && headingListenerRef.current) {
+        window.removeEventListener('deviceorientation', headingListenerRef.current, true);
       }
+      headingListenerAttachedRef.current = false;
+      headingListenerRef.current = null;
+      headingConeMarkerRef.current?.setMap(null);
+      headingConeMarkerRef.current = null;
+      headingConeElementRef.current = null;
+      headingModeRef.current = 'off';
       clearCourseMarkers();
       clearSelectedPath();
+      markerReshowOnMoveRef.current = false;
+      markerReshowStartViewportRef.current = null;
       userMarkerRef.current?.setMap(null);
       userMarkerRef.current = null;
       mapRef.current?.destroy();
@@ -630,6 +866,24 @@ export default function CoursesPage() {
 
     userMarkerRef.current.setPosition(center);
   }, [profileSummary?.user.image, userLocation, viewMode]);
+
+  useEffect(() => {
+    if (!userLocation || !headingConeMarkerRef.current) return;
+    headingConeMarkerRef.current.setPosition(toLatLng(userLocation.lat, userLocation.lng));
+  }, [userLocation]);
+
+  useEffect(() => {
+    if (!userLocation || !mapRef.current || !mapSdkRef.current) return;
+    if (headingModeRef.current !== 'off') return;
+
+    void (async () => {
+      const orientationReady = await ensureOrientationListener();
+      if (!orientationReady) return;
+      if (headingModeRef.current === 'off') {
+        applyHeadingMode('cone');
+      }
+    })();
+  }, [userLocation]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
@@ -716,9 +970,9 @@ export default function CoursesPage() {
       selectedOutlinePolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#22c55e',
+        strokeColor: '#15803d',
         strokeWeight: 8,
-        strokeOpacity: 0.45,
+        strokeOpacity: 0.5,
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
         clickable: false,
@@ -731,7 +985,7 @@ export default function CoursesPage() {
       selectedMainPolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#22c55e',
+        strokeColor: '#15803d',
         strokeWeight: 6,
         strokeOpacity: 0.98,
         strokeLineCap: 'round',
@@ -740,9 +994,6 @@ export default function CoursesPage() {
       });
     }
 
-    const bounds = new sdk.LatLngBounds();
-    path.forEach((coordinate) => bounds.extend(coordinate));
-    mapInstance.fitBounds(bounds, { top: 70, right: 70, bottom: 70, left: 70 });
   }, [selectedCourse, selectedCourseId, selectedWaypointList, viewMode]);
 
   const samplePath = (points: { lat: number; lng: number }[]) => {
@@ -785,7 +1036,7 @@ export default function CoursesPage() {
     const mapInstance = mapRef.current;
     if (!mapInstance) return;
 
-    const moveMap = (lat: number, lng: number) => {
+    const moveMap = async (lat: number, lng: number) => {
       setLocationError(null);
       const nextLocation = { lat, lng };
       setUserLocation(nextLocation);
@@ -793,10 +1044,30 @@ export default function CoursesPage() {
       mapInstance.setCenter(toLatLng(lat, lng));
       mapInstance.setZoom(14);
       collapsePanelToMin();
+
+      const orientationReady = await ensureOrientationListener();
+      if (!orientationReady) {
+        toast.error(isEnglish
+          ? 'Direction sensor is unavailable on this device.'
+          : '이 기기에서는 방향 센서를 사용할 수 없습니다');
+        return;
+      }
+
+      if (headingModeRef.current === 'rotate') {
+        applyHeadingMode('cone');
+        return;
+      }
+
+      if (headingModeRef.current === 'cone') {
+        applyHeadingMode('rotate');
+        return;
+      }
+
+      applyHeadingMode('cone');
     };
 
     if (userLocation) {
-      moveMap(userLocation.lat, userLocation.lng);
+      void moveMap(userLocation.lat, userLocation.lng);
       return;
     }
 
@@ -807,7 +1078,7 @@ export default function CoursesPage() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        moveMap(position.coords.latitude, position.coords.longitude);
+        void moveMap(position.coords.latitude, position.coords.longitude);
       },
       () => {
         setLocationError(isEnglish ? 'Unable to get current location. Showing default location.' : '현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
@@ -904,15 +1175,9 @@ export default function CoursesPage() {
         </DialogContent>
       </Dialog>
 
-      <header className="rg-page-header shrink-0 px-4 py-5 sticky top-0 z-10">
-        <div className="flex items-center justify-center">
-            <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'Home' : '홈'}</h1>
-        </div>
-      </header>
-
-      <main className="rg-page-main min-h-0 flex-1 overflow-hidden p-4">
+      <main className="rg-page-main min-h-0 flex-1 overflow-hidden p-0">
         {viewMode === 'map' ? (
-          <div className="relative min-h-[260px] h-full overflow-hidden rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] sm:min-h-[320px]">
+          <div className="relative h-full w-full overflow-hidden bg-white/80">
             <div
               ref={mapContainerRef}
               className="adsense-excluded-area h-full w-full"
@@ -935,22 +1200,62 @@ export default function CoursesPage() {
               <LocateFixed className="h-5 w-5" />
             </button>
 
+            {isMarkerButtonVisible ? (
+            <div className="fixed left-1/2 z-[85] -translate-x-1/2" style={{ top: 'max(env(safe-area-inset-top), 0.75rem)' }}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rg-touch h-9 rounded-full border-white/80 bg-white/95 px-3 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
+                onClick={syncMarkerViewport}
+              >
+                <MapPin className="mr-1 h-3.5 w-3.5" />
+                {isEnglish ? 'Show Here Markers' : '현지도에서 마커보기'}
+              </Button>
+            </div>
+            ) : null}
+
             {selectedCourse && (
               <div className="absolute left-3 right-3 z-20" style={{ bottom: panelHeight + 12 }}>
-                <Link href={`/run?courseId=${selectedCourse.id}`}>
-                  <Button size="lg" className="rg-touch w-full h-12 rounded-2xl">{isEnglish ? 'Start Run With This Course' : '이 코스로 러닝 시작'}</Button>
-                </Link>
+                <div className="mb-2 rounded-2xl border border-white/80 bg-white/95 px-3 py-2 shadow-[0_10px_20px_-16px_rgba(15,23,42,0.6)]">
+                  <p className="truncate text-xs font-semibold text-slate-900">{selectedCourse.title}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                    <span className="rounded-full bg-slate-100/80 px-2 py-1">
+                      {isEnglish ? 'From me' : '내 위치'} {getDistanceLabel(selectedCourse.centerLat, selectedCourse.centerLng)}
+                    </span>
+                    <span className="rounded-full bg-slate-100/80 px-2 py-1">
+                      {selectedCourse.totalDistance.toFixed(1)}km
+                    </span>
+                    <Badge className={`${difficultyColors[selectedCourse.difficulty]} rounded-full text-[10px]`}>
+                      {difficultyLabel(selectedCourse.difficulty)}
+                    </Badge>
+                  </div>
+                </div>
+                <Button
+                  size="lg"
+                  className="rg-touch w-full h-12 rounded-2xl"
+                  onClick={() => {
+                    if (sessionStatus !== 'authenticated') {
+                      router.push('/login');
+                      return;
+                    }
+                    router.push(`/run?courseId=${selectedCourse.id}`);
+                  }}
+                >
+                  {isEnglish ? 'Start Run With This Course' : '이 코스로 러닝 시작'}
+                </Button>
               </div>
             )}
 
             <section
+              ref={panelSectionRef}
               className={`absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-3xl border-t border-white/70 bg-white/95 backdrop-blur-md shadow-[0_-16px_34px_-24px_rgba(15,23,42,0.55)] ${panelTransitionClass}`}
               style={{ height: panelHeight }}
             >
               <button
                 type="button"
                 aria-label={isEnglish ? 'Adjust list panel height' : '목록 패널 높이 조절'}
-                className="rg-touch shrink-0 touch-none flex w-full items-center justify-center py-3"
+                className="rg-touch shrink-0 flex w-full items-center justify-center py-3"
                 onPointerDown={onPanelHandlePointerDown}
                 onPointerMove={onPanelHandlePointerMove}
                 onPointerUp={onPanelHandlePointerEnd}
@@ -973,18 +1278,6 @@ export default function CoursesPage() {
                       <p className="truncate text-sm font-semibold text-slate-900">{isEnglish ? 'Course List' : '코스 목록'}</p>
                       <p className="truncate text-xs text-slate-500">{courses?.courses.length ?? 0}{isEnglish ? ' courses' : '개 코스'}</p>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={isNearbyCourseMarkerVisible ? 'default' : 'outline'}
-                      className="rg-touch h-9 shrink-0 rounded-full px-3"
-                      onClick={() => {
-                        setIsNearbyCourseMarkerVisible((prev) => !prev);
-                      }}
-                    >
-                      <MapPin className="mr-1 h-3.5 w-3.5" />
-                      {isNearbyCourseMarkerVisible ? (isEnglish ? 'Hide Markers' : '마커 숨기기') : (isEnglish ? 'Show Markers' : '마커 보기')}
-                    </Button>
                   </div>
                   <select
                     value={listSort}
@@ -997,7 +1290,7 @@ export default function CoursesPage() {
                     <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
                     <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
                   </select>
-                  <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+                  <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
                 </div>
 
                 {locationError && listSort === 'NEAREST' && (
@@ -1091,7 +1384,7 @@ export default function CoursesPage() {
                           </Card>
                         </button>
                         {index === 5 ? (
-                          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+                      <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
                         ) : null}
                       </div>
                     ))}
@@ -1186,11 +1479,6 @@ export default function CoursesPage() {
                       <Badge className={`${difficultyColors[course.difficulty]} rounded-full`}>
                         {difficultyLabel(course.difficulty)}
                       </Badge>
-                      {course.tags.slice(0, 3).map((tag) => (
-                        <Badge key={tag} variant="secondary" className="rounded-full">
-                          #{tag}
-                        </Badge>
-                      ))}
                     </div>
                   </CardContent>
                 </Card>

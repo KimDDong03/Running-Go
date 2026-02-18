@@ -30,7 +30,7 @@ const normalizePath = (points: PreviewPoint[], width: number, height: number) =>
 
   const lngRange = Math.max(maxLng - minLng, 0.0001);
   const latRange = Math.max(maxLat - minLat, 0.0001);
-  const padding = 16;
+  const padding = 24;
   const renderWidth = Math.max(width - padding * 2, 1);
   const renderHeight = Math.max(height - padding * 2, 1);
 
@@ -66,9 +66,9 @@ export const getCoursePreviewImageUrl = (
   <rect width="100%" height="100%" fill="url(#bg)" />
   <circle cx="${(width * 0.82).toFixed(2)}" cy="${(height * 0.2).toFixed(2)}" r="${(Math.min(width, height) * 0.15).toFixed(2)}" fill="rgba(14,165,233,0.12)" />
   <circle cx="${(width * 0.14).toFixed(2)}" cy="${(height * 0.78).toFixed(2)}" r="${(Math.min(width, height) * 0.18).toFixed(2)}" fill="rgba(16,185,129,0.10)" />
-  ${pathData ? `<path d="${escapeSvg(pathData)}" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.88" />` : ''}
-  ${pathData ? `<path d="${escapeSvg(pathData)}" fill="none" stroke="#0ea5e9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.96" />` : ''}
-  ${!pathData ? `<circle cx="${(width / 2).toFixed(2)}" cy="${(height / 2).toFixed(2)}" r="10" fill="#0ea5e9" opacity="0.78" />` : ''}
+  ${pathData ? `<path d="${escapeSvg(pathData)}" fill="none" stroke="#15803d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.52" />` : ''}
+  ${pathData ? `<path d="${escapeSvg(pathData)}" fill="none" stroke="#15803d" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.98" />` : ''}
+  ${!pathData ? `<circle cx="${(width / 2).toFixed(2)}" cy="${(height / 2).toFixed(2)}" r="10" fill="#15803d" opacity="0.78" />` : ''}
   <text x="12" y="${height - 12}" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11" fill="#64748b">${escapeSvg(`${pin.lat.toFixed(3)}, ${pin.lng.toFixed(3)}`)}</text>
 </svg>`;
 

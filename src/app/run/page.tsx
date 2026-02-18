@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -85,6 +86,7 @@ function RunPageContent() {
   const router = useRouter();
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
+  const { status: sessionStatus } = useSession();
 
   const collectMutation = trpc.collection.collect.useMutation();
   const freeRunMutation = trpc.runSession.createFreeRun.useMutation();
@@ -231,9 +233,9 @@ function RunPageContent() {
       runPathOutlineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#ffffff',
+        strokeColor: '#15803d',
         strokeWeight: 8,
-        strokeOpacity: 0.9,
+        strokeOpacity: 0.5,
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
         clickable: false,
@@ -246,7 +248,7 @@ function RunPageContent() {
       runPathMainRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#0ea5e9',
+        strokeColor: '#15803d',
         strokeWeight: 6,
         strokeOpacity: 0.98,
         strokeLineCap: 'round',
@@ -272,9 +274,9 @@ function RunPageContent() {
       coursePathOutlineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#22c55e',
+        strokeColor: '#15803d',
         strokeWeight: 8,
-        strokeOpacity: 0.45,
+        strokeOpacity: 0.5,
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
         clickable: false,
@@ -287,7 +289,7 @@ function RunPageContent() {
       coursePathMainRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#22c55e',
+        strokeColor: '#15803d',
         strokeWeight: 5,
         strokeOpacity: 0.9,
         strokeLineCap: 'round',
@@ -441,6 +443,12 @@ function RunPageContent() {
   };
 
   const startTracking = () => {
+    if (sessionStatus !== 'authenticated') {
+      toast.error(isEnglish ? 'Please sign in to start a run.' : '러닝을 시작하려면 로그인해주세요');
+      router.push('/login');
+      return;
+    }
+
     if (!navigator.geolocation) {
       toast.error(isEnglish ? 'This browser does not support GPS.' : 'GPS를 지원하지 않는 브라우저입니다');
       return;

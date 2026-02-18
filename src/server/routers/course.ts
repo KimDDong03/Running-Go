@@ -3,8 +3,6 @@ import { TRPCError } from '@trpc/server';
 import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 
-const INSTANT_PUBLISH_CREATOR_EMAIL = 'ehdrjs0887@gmail.com';
-
 const WaypointSchema = z.object({
   lat: z.number(),
   lng: z.number(),
@@ -15,14 +13,12 @@ const CreateCourseInput = z.object({
   title: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   waypoints: z.array(WaypointSchema).min(5).max(400),
-  totalDistance: z.number().min(0.5).max(20),
+  totalDistance: z.number().min(0.5).max(50),
   estimatedTime: z.number().int().positive(),
   difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']),
   centerLat: z.number(),
   centerLng: z.number(),
   region: z.string().optional(),
-  tags: z.array(z.string()).max(5),
-  isPublic: z.boolean().default(true),
 });
 
 const CourseListSortSchema = z.enum([
@@ -317,19 +313,17 @@ export const courseRouter = createTRPCRouter({
   create: protectedProcedure
     .input(CreateCourseInput)
     .mutation(async ({ input, ctx }) => {
-      const creatorEmail = ctx.session?.user?.email?.toLowerCase();
-      const isInstantPublishCreator = creatorEmail === INSTANT_PUBLISH_CREATOR_EMAIL;
-
-      // Validate distance constraints (500m ~ 20km)
-      if (input.totalDistance < 0.5 || input.totalDistance > 20) {
-        throw new Error('Course distance must be between 500m and 20km');
+      if (input.totalDistance < 0.5 || input.totalDistance > 50) {
+        throw new Error('Course distance must be between 500m and 50km');
       }
 
       const course = await prisma.course.create({
         data: {
           ...input,
           creatorId: ctx.userId,
-          status: isInstantPublishCreator ? 'ACTIVE' : 'HIDDEN',
+          tags: [],
+          isPublic: true,
+          status: 'ACTIVE',
         },
         include: {
           creator: {
@@ -412,20 +406,19 @@ export const courseRouter = createTRPCRouter({
     }),
 
   // List courses by user
-  listByUser: publicProcedure
+  listByUser: protectedProcedure
     .input(
       z.object({
-        userId: z.string(),
         limit: z.number().min(1).max(50).default(20),
         cursor: z.string().optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const courses = await prisma.course.findMany({
         take: input.limit + 1,
         cursor: input.cursor ? { id: input.cursor } : undefined,
         where: {
-          creatorId: input.userId,
+          creatorId: ctx.userId,
           status: { not: 'DELETED' },
         },
         orderBy: { createdAt: 'desc' },
@@ -448,6 +441,48 @@ export const courseRouter = createTRPCRouter({
           likeCount: course._count.likes,
         })),
         nextCursor,
+      };
+    }),
+
+  listByCreator: publicProcedure
+    .input(
+      z.object({
+        creatorId: z.string(),
+        limit: z.number().min(1).max(50).default(20),
+      })
+    )
+    .query(async ({ input }) => {
+      const courses = await prisma.course.findMany({
+        where: {
+          creatorId: input.creatorId,
+          status: 'ACTIVE',
+          isPublic: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: input.limit,
+        include: {
+          _count: {
+            select: { likes: true },
+          },
+          creator: {
+            select: { name: true },
+          },
+        },
+      });
+
+      return {
+        courses: courses.map((course) => ({
+          id: course.id,
+          title: course.title,
+          totalDistance: course.totalDistance,
+          difficulty: course.difficulty,
+          centerLat: course.centerLat,
+          centerLng: course.centerLng,
+          waypoints: course.waypoints,
+          thumbnailUrl: course.thumbnailUrl,
+          likeCount: course._count.likes,
+          creatorName: course.creator.name,
+        })),
       };
     }),
 });

@@ -90,6 +90,64 @@ export const profileRouter = createTRPCRouter({
       };
     }),
 
+  updateNickname: protectedProcedure
+    .input(z.object({ name: z.string().trim().min(2).max(20) }))
+    .mutation(async ({ input, ctx }) => {
+      const userBefore = await prisma.user.findUnique({
+        where: { id: ctx.userId },
+        select: { name: true, createdAt: true, updatedAt: true },
+      });
+
+      if (!userBefore) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: '사용자를 찾을 수 없습니다' });
+      }
+
+      if (userBefore.name?.trim() === input.name) {
+        return {
+          name: userBefore.name,
+        };
+      }
+
+      const duplicatedUser = await prisma.user.findFirst({
+        where: {
+          id: { not: ctx.userId },
+          name: {
+            equals: input.name,
+            mode: 'insensitive',
+          },
+        },
+        select: { id: true },
+      });
+
+      if (duplicatedUser) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: '이미 사용 중인 닉네임입니다',
+        });
+      }
+
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      const FIRST_UPDATE_TOLERANCE_MS = 1000;
+      const now = Date.now();
+      const elapsed = now - userBefore.updatedAt.getTime();
+      const isFirstProfileUpdate = Math.abs(userBefore.updatedAt.getTime() - userBefore.createdAt.getTime()) <= FIRST_UPDATE_TOLERANCE_MS;
+      if (!isFirstProfileUpdate && elapsed < THIRTY_DAYS_MS) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: '닉네임은 30일에 한 번만 변경할 수 있습니다',
+        });
+      }
+
+      const user = await prisma.user.update({
+        where: { id: ctx.userId },
+        data: { name: input.name },
+      });
+
+      return {
+        name: user.name,
+      };
+    }),
+
   summary: publicProcedure.query(async ({ ctx }) => {
     const userId = await getOrCreateGuestUserId(ctx.userId);
     const user = await prisma.user.findUnique({ where: { id: userId } });

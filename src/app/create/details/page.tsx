@@ -24,9 +24,6 @@ export default function CreateCourseDetailsPage() {
   const { locale } = useLocale();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [difficulty, setDifficulty] = useState<'EASY' | 'MEDIUM' | 'HARD'>('EASY');
-  const [isPublic, setIsPublic] = useState(true);
-  const [tags, setTags] = useState('');
   const createCourse = trpc.course.create.useMutation();
   const isEnglish = locale === 'en';
 
@@ -48,8 +45,15 @@ export default function CreateCourseDetailsPage() {
     return Math.max(1, Math.round(draft.totalDistance * 6));
   }, [draft]);
 
+  const autoDifficulty = useMemo<'EASY' | 'MEDIUM' | 'HARD'>(() => {
+    if (!draft) return 'EASY';
+    if (draft.totalDistance <= 3) return 'EASY';
+    if (draft.totalDistance <= 7) return 'MEDIUM';
+    return 'HARD';
+  }, [draft]);
+
   const isDistanceOutOfRange = draft
-    ? draft.totalDistance < 0.5 || draft.totalDistance > 20
+      ? draft.totalDistance < 0.5 || draft.totalDistance > 50
     : false;
 
   const center = useMemo(() => {
@@ -66,11 +70,6 @@ export default function CreateCourseDetailsPage() {
 
   const handleSubmit = async () => {
     if (!draft) return;
-    const tagList = tags
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean)
-      .slice(0, 5);
 
     try {
       const result = await createCourse.mutateAsync({
@@ -79,11 +78,9 @@ export default function CreateCourseDetailsPage() {
         waypoints: draft.waypoints,
         totalDistance: Number(draft.totalDistance.toFixed(2)),
         estimatedTime,
-        difficulty,
+        difficulty: autoDifficulty,
         centerLat: center.lat,
         centerLng: center.lng,
-        tags: tagList,
-        isPublic,
       });
 
       window.sessionStorage.removeItem('courseDraft');
@@ -172,35 +169,14 @@ export default function CreateCourseDetailsPage() {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="difficulty" className="text-sm font-medium">{isEnglish ? 'Difficulty' : '난이도'}</label>
-              <select
-                id="difficulty"
-                value={difficulty}
-                onChange={(event) => setDifficulty(event.target.value as 'EASY' | 'MEDIUM' | 'HARD')}
-                className="rg-touch w-full h-12 rounded-2xl border border-white/70 bg-white/85 px-4 text-sm shadow-[0_10px_22px_-18px_rgba(15,23,42,0.6)]"
-              >
-                <option value="EASY">{isEnglish ? 'Easy' : '쉬움'}</option>
-                <option value="MEDIUM">{isEnglish ? 'Medium' : '보통'}</option>
-                <option value="HARD">{isEnglish ? 'Hard' : '어려움'}</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="tags" className="text-sm font-medium">{isEnglish ? 'Tags (up to 5)' : '태그 (최대 5개)'}</label>
-              <Input
-                id="tags"
-                value={tags}
-                onChange={(event) => setTags(event.target.value)}
-                placeholder={isEnglish ? 'park, night, beginner' : '하트, 야경, 초보'}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <label htmlFor="public" className="text-sm font-medium">{isEnglish ? 'Public Visibility' : '공개 여부'}</label>
-              <input
-                id="public"
-                type="checkbox"
-                checked={isPublic}
-                onChange={(event) => setIsPublic(event.target.checked)}
-              />
+              <p className="text-sm font-medium">{isEnglish ? 'Difficulty' : '난이도'}</p>
+              <div className="h-12 rounded-2xl border border-white/70 bg-white/85 px-4 text-sm font-medium text-slate-700 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.6)] flex items-center">
+                {autoDifficulty === 'EASY'
+                  ? (isEnglish ? 'Easy (auto by distance)' : '쉬움 (거리 기준 자동 설정)')
+                  : autoDifficulty === 'MEDIUM'
+                    ? (isEnglish ? 'Medium (auto by distance)' : '보통 (거리 기준 자동 설정)')
+                    : (isEnglish ? 'Hard (auto by distance)' : '어려움 (거리 기준 자동 설정)')}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -212,15 +188,15 @@ export default function CreateCourseDetailsPage() {
             <div>{isEnglish ? 'Estimated Time' : '예상 시간'}: {estimatedTime}{isEnglish ? ' min' : '분'}</div>
             <div className="rounded-2xl border border-sky-200/70 bg-sky-50/70 px-3 py-2 text-xs text-sky-700">
               {isEnglish
-                ? 'Saved courses stay private first. After you run this course once, it is published for other users.'
-                : '저장한 코스는 먼저 비공개로 보관됩니다. 이 코스를 한 번 달리면 다른 사용자에게 공개 등록됩니다.'}
+                ? 'Saved courses are published immediately.'
+                : '저장한 코스는 즉시 공개됩니다.'}
             </div>
           </CardContent>
         </Card>
 
         {isDistanceOutOfRange && (
           <div className="text-sm text-red-500">
-            {isEnglish ? 'Course distance must be between 0.5km and 20km.' : '코스 거리는 0.5km ~ 20km 사이여야 합니다'}
+                    {isEnglish ? 'Course distance must be between 0.5km and 50km.' : '코스 거리는 0.5km ~ 50km 사이여야 합니다'}
           </div>
         )}
 

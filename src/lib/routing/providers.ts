@@ -209,9 +209,7 @@ const providers: RoutingProvider[] = [
 ];
 
 export const routeWithProvider = async (profile: RoutingProfile, points: RoutingPoint[]) => {
-  const profileOrder: RoutingProfile[] = profile === 'walking'
-    ? ['walking', 'driving']
-    : ['driving', 'walking'];
+  const profileOrder: RoutingProfile[] = [profile];
 
   for (const targetProfile of profileOrder) {
     const profileProviders = providers.filter((candidate) => candidate.profile === targetProfile);

@@ -7,13 +7,13 @@ import { trpc } from '@/components/providers/TRPCProvider';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AdSlot } from '@/app/components/ads/AdSlot';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
-import { ChevronLeft } from 'lucide-react';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 
-const tabIds = ['popular', 'collector', 'creator', 'course'] as const;
+const tabIds = ['popular', 'collector', 'creator'] as const;
 const periodIds = ['WEEKLY', 'MONTHLY', 'ALL_TIME'] as const;
 
 export default function RankingsPage() {
@@ -21,13 +21,17 @@ export default function RankingsPage() {
   const isEnglish = locale === 'en';
   const [activeTab, setActiveTab] = useState<(typeof tabIds)[number]>('popular');
   const [period, setPeriod] = useState<(typeof periodIds)[number]>('ALL_TIME');
+  const [selectedCreator, setSelectedCreator] = useState<{ userId: string; name: string | null } | null>(null);
   const { data, isError, refetch } = trpc.ranking.list.useQuery({ period });
+  const { data: creatorCoursesData } = trpc.course.listByCreator.useQuery(
+    { creatorId: selectedCreator?.userId ?? '', limit: 50 },
+    { enabled: Boolean(selectedCreator?.userId) }
+  );
   const maxPathPoints = 50;
   const tabs = [
     { id: 'popular', label: isEnglish ? 'Popular Courses' : '인기코스' },
     { id: 'collector', label: isEnglish ? 'Collectors' : '수집왕' },
     { id: 'creator', label: isEnglish ? 'Creators' : '제작왕' },
-    { id: 'course', label: isEnglish ? 'By Course' : '코스별' },
   ] as const;
   const periods = [
     { id: 'WEEKLY', label: isEnglish ? 'Weekly' : '주간' },
@@ -61,18 +65,7 @@ export default function RankingsPage() {
 
   return (
     <div className="rg-page">
-      <header className="rg-page-header px-4 py-5 sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <Link href="/">
-            <Button variant="ghost" size="icon" className="rg-touch-icon rg-press rounded-full">
-              <ChevronLeft className="w-6 h-6" />
-            </Button>
-          </Link>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'Rankings' : '랭킹'}</h1>
-        </div>
-      </header>
-
-      <main className="rg-page-main p-4 space-y-4">
+      <main className="rg-page-main p-4 pt-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] space-y-4">
         <div className="rg-chip-bar rg-scroll-row p-1">
           {tabs.map((tab) => (
             <Button
@@ -140,6 +133,9 @@ export default function RankingsPage() {
                           <div className="min-w-0">
                             <div className="truncate font-semibold text-slate-900">{rankLabel(index)} {course.title}</div>
                             <div className="mt-1 text-sm text-slate-600">❤️ {course.likeCount}</div>
+                            <div className="text-xs text-slate-500 truncate">
+                              {isEnglish ? 'Creator' : '제작자'}: {course.creatorName ?? (isEnglish ? 'Anonymous' : '익명')}
+                            </div>
                           </div>
                           <div className="shrink-0 rounded-full bg-slate-100/85 px-2.5 py-1 text-xs font-medium text-slate-700">{course.totalDistance.toFixed(1)}km</div>
                         </div>
@@ -178,14 +174,23 @@ export default function RankingsPage() {
         {!isError && activeTab === 'creator' && (
           <div className="rg-stagger space-y-3">
             {data?.creatorRankings.length ? (
-              data.creatorRankings.map((ranking, index) => (
+               data.creatorRankings.map((ranking, index) => (
                   <Card key={ranking.id} className="rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
                     <CardContent className="p-4 flex items-center justify-between gap-3">
-                      <div className="min-w-0 font-medium">
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left font-medium"
+                        onClick={() => {
+                          setSelectedCreator({
+                            userId: ranking.userId,
+                            name: ranking.name ?? null,
+                          });
+                        }}
+                      >
                         <span className="truncate align-middle">{rankLabel(index)} {ranking.name ?? (isEnglish ? 'Anonymous' : '익명')}</span>
                         <span className="ml-2">{getCreatorTier(ranking.score).icon}</span>
                         <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{isEnglish ? 'Creator' : '설계자'}</span>
-                      </div>
+                      </button>
                       <div className="shrink-0 text-sm text-slate-500">{ranking.score}❤️</div>
                     </CardContent>
                   </Card>
@@ -196,27 +201,58 @@ export default function RankingsPage() {
           </div>
         )}
 
-        {!isError && activeTab === 'course' && (
-          <div className="rg-stagger space-y-3">
-            {data?.courseRankings.length ? (
-              data.courseRankings.map((ranking, index) => (
-                <Link key={ranking.id} href={`/?focusCourseId=${ranking.courseId}`} className="block">
-                  <Card className="rg-interactive-card rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
-                    <CardContent className="p-4 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{rankLabel(index)} {ranking.courseTitle}</div>
-                      </div>
-                      <div className="shrink-0 text-sm text-slate-500">{ranking.runCount}{isEnglish ? ' runs' : '회'}</div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))
-            ) : (
-              <div className="text-center text-slate-500 py-12">{isEnglish ? 'No ranking data.' : '랭킹 데이터가 없습니다'}</div>
+      </main>
+
+      <Dialog open={Boolean(selectedCreator)} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedCreator(null);
+        }
+      }}>
+        <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">
+              {isEnglish
+                ? `${selectedCreator?.name ?? 'Creator'}'s Courses`
+                : `${selectedCreator?.name ?? '제작자'}의 코스`}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+            {creatorCoursesData?.courses?.length ? creatorCoursesData.courses.map((course) => (
+              <Link key={course.id} href={`/?focusCourseId=${course.id}`} className="block" onClick={() => setSelectedCreator(null)}>
+                <Card className="rounded-2xl border border-white/70 bg-white/85 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.55)]">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className="relative h-14 w-20 flex-shrink-0 overflow-hidden rounded-xl border border-white/80 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+                      <Image
+                        src={(() => {
+                          const raw = Array.isArray(course.waypoints)
+                            ? (course.waypoints as { lat: number; lng: number }[])
+                            : [];
+                          return getPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
+                        })()}
+                        alt={course.title}
+                        fill
+                        sizes="80px"
+                        className="object-contain"
+                        quality={70}
+                        unoptimized
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-slate-900">{course.title}</div>
+                      <div className="mt-1 text-xs text-slate-600">{course.totalDistance.toFixed(1)}km · ❤️ {course.likeCount}</div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            )) : (
+              <div className="rounded-2xl border border-white/70 bg-white/80 py-8 text-center text-sm text-slate-500">
+                {isEnglish ? 'No courses by this creator yet.' : '아직 이 제작자의 코스가 없습니다'}
+              </div>
             )}
           </div>
-        )}
-      </main>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

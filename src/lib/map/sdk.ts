@@ -19,6 +19,8 @@ export interface MapBounds {
 export interface MapLike {
   setCenter: (latLng: MapLatLng) => void;
   setZoom: (zoom: number) => void;
+  setBearing?: (bearing: number) => void;
+  getBearing?: () => number;
   setOptions?: (options: {
     draggable?: boolean;
     scrollWheel?: boolean;
@@ -112,6 +114,8 @@ class AdapterMap implements MapLike {
   constructor(private readonly map: maplibregl.Map) {}
   setCenter(latLng: MapLatLng) { this.map.setCenter([latLng.lng(), latLng.lat()]); }
   setZoom(zoom: number) { this.map.setZoom(zoom); }
+  setBearing(bearing: number) { this.map.setBearing(bearing); }
+  getBearing() { return this.map.getBearing(); }
   setOptions(options: {
     draggable?: boolean;
     scrollWheel?: boolean;

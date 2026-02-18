@@ -1,6 +1,6 @@
 'use client';
 
-import { type ChangeEvent, useRef, useState } from 'react';
+import { type ChangeEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { signOut, useSession } from 'next-auth/react';
@@ -21,7 +21,7 @@ import { ErrorState } from '@/components/ui/error-state';
 import { AdSlot } from '@/app/components/ads/AdSlot';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
-import { ChevronLeft, User } from 'lucide-react';
+import { User } from 'lucide-react';
 
 export default function ProfilePage() {
   const { locale } = useLocale();
@@ -29,6 +29,7 @@ export default function ProfilePage() {
   const { data, isLoading, isError, refetch } = trpc.profile.summary.useQuery();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isAvatarProcessing, setIsAvatarProcessing] = useState(false);
+  const [nicknameDraft, setNicknameDraft] = useState('');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
@@ -50,6 +51,15 @@ export default function ProfilePage() {
       toast.error(error.message || (isEnglish ? 'Failed to delete account.' : '회원 탈퇴에 실패했습니다'));
     },
   });
+  const updateNickname = trpc.profile.updateNickname.useMutation({
+    onSuccess: async () => {
+      toast.success(isEnglish ? 'Nickname updated.' : '닉네임을 변경했어요');
+      await refetch();
+    },
+    onError: (error) => {
+      toast.error(error.message || (isEnglish ? 'Failed to update nickname.' : '닉네임 변경에 실패했습니다'));
+    },
+  });
   const isEnglish = locale === 'en';
   const collectorTier = getCollectorTier(data?.stats.collectedCourses ?? 0, isEnglish ? 'en' : 'ko');
   const creatorTier = getCreatorTier(data?.stats.createdCourses ?? 0, isEnglish ? 'en' : 'ko');
@@ -59,6 +69,10 @@ export default function ProfilePage() {
   const creatorNextRemaining = creatorTier.nextThreshold
     ? Math.max(0, creatorTier.nextThreshold - (data?.stats.createdCourses ?? 0))
     : 0;
+
+  useEffect(() => {
+    setNicknameDraft(data?.user.name ?? '');
+  }, [data?.user.name]);
 
   const formatDuration = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
@@ -132,18 +146,7 @@ export default function ProfilePage() {
 
   return (
     <div className="rg-page">
-      <header className="rg-page-header px-4 py-5 sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <Link href="/">
-            <Button variant="ghost" size="icon" className="rg-touch-icon rg-press rounded-full">
-              <ChevronLeft className="w-6 h-6" />
-            </Button>
-          </Link>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'Profile' : '프로필'}</h1>
-        </div>
-      </header>
-
-      <main className="rg-page-main rg-stagger p-4 space-y-4">
+      <main className="rg-page-main rg-stagger p-4 pt-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] space-y-4">
         {isError && (
           <ErrorState
             title={isEnglish ? 'Failed to load profile' : '프로필을 불러오지 못했습니다'}
@@ -160,6 +163,34 @@ export default function ProfilePage() {
               <div className="text-xl font-semibold text-slate-900">
                 {isLoading ? (isEnglish ? 'Loading...' : '불러오는 중...') : data?.user.name}
               </div>
+              {!data?.user.isGuest && (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={nicknameDraft}
+                    onChange={(event) => setNicknameDraft(event.target.value)}
+                    placeholder={isEnglish ? 'Set nickname' : '닉네임 설정'}
+                    className="h-10 flex-1 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rg-touch rg-press rounded-full"
+                    disabled={
+                      updateNickname.isPending
+                      || nicknameDraft.trim().length < 2
+                      || nicknameDraft.trim().length > 20
+                      || nicknameDraft.trim() === (data?.user.name ?? '')
+                    }
+                    onClick={() => {
+                      void updateNickname.mutateAsync({ name: nicknameDraft.trim() });
+                    }}
+                  >
+                    {updateNickname.isPending
+                      ? (isEnglish ? 'Saving...' : '저장 중...')
+                      : (isEnglish ? 'Save Nickname' : '닉네임 저장')}
+                  </Button>
+                </div>
+              )}
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 p-3">
                 <div className="relative h-14 w-14 overflow-hidden rounded-full border border-white/80 bg-slate-100">
                   {data?.user.image ? (
@@ -261,12 +292,12 @@ export default function ProfilePage() {
                         {isEnglish ? 'Delete Account' : '회원 탈퇴'}
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
+          <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
                       <DialogHeader>
-                        <DialogTitle className="text-slate-900">
+            <DialogTitle className="text-slate-900">
                           {isEnglish ? 'Delete account?' : '회원 탈퇴를 진행할까요?'}
                         </DialogTitle>
-                        <DialogDescription className="text-slate-600">
+            <DialogDescription className="text-slate-600">
                           {isEnglish
                             ? 'This action permanently removes your account data and cannot be undone. Enter your email and type DELETE to continue.'
                             : '탈퇴 시 계정 데이터가 영구 삭제되며 복구할 수 없습니다. 진행하려면 이메일과 DELETE를 입력하세요.'}
@@ -277,14 +308,14 @@ export default function ProfilePage() {
                         value={deleteConfirmEmail}
                         onChange={(event) => setDeleteConfirmEmail(event.target.value)}
                         placeholder={session?.user?.email ?? 'you@example.com'}
-                        className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                       />
 
                       <input
                         value={deleteConfirmText}
                         onChange={(event) => setDeleteConfirmText(event.target.value)}
                         placeholder="DELETE"
-                        className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                       />
 
                       <DialogFooter>
@@ -359,7 +390,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
-              <div className="mt-4 rounded-2xl bg-white/80 border border-white/70 p-4 text-center">
+            <div className="mt-4 rounded-2xl bg-white/80 border border-white/70 p-4 text-center">
                 <div className="text-xs text-slate-500">{isEnglish ? 'Total Distance' : '누적 거리'}</div>
                 <div className="text-3xl font-semibold text-slate-900">
                   {isLoading ? '-' : `${(data?.stats.totalDistance ?? 0).toFixed(1)}km`}
@@ -370,7 +401,7 @@ export default function ProfilePage() {
         )}
 
         {!isError && (
-          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+            <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
         )}
 
         {!isError && (
@@ -384,7 +415,7 @@ export default function ProfilePage() {
                 <div className="space-y-3">
                   {data.createdCoursePreview.map((course) => (
                     <Link key={course.id} href={`/courses/${course.id}`}>
-                      <div className="rg-interactive-card flex items-center justify-between rounded-2xl border border-white/70 bg-white/80 px-4 py-3">
+                <div className="rg-interactive-card flex items-center justify-between rounded-2xl border border-white/70 bg-white/80 px-4 py-3">
                         <div>
                           <div className="text-sm font-semibold text-slate-900">{course.title}</div>
                           <div className="text-xs text-slate-500">{course.totalDistance.toFixed(1)}km · ❤️ {course.likeCount}</div>

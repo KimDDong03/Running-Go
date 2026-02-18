@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createTRPCRouter, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 import { filterLowAccuracyPoints } from '@/lib/path-matching';
 
@@ -11,7 +11,7 @@ const PathPointSchema = z.object({
 });
 
 export const runSessionRouter = createTRPCRouter({
-  createFreeRun: publicProcedure
+  createFreeRun: protectedProcedure
     .input(
       z.object({
         path: z.array(PathPointSchema).min(2),
@@ -23,18 +23,7 @@ export const runSessionRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const userId = ctx.userId
-        ?? (await prisma.user.upsert({
-          where: { providerId: 'guest' },
-          update: {},
-          create: {
-            email: 'guest@running-go.local',
-            name: '게스트',
-            image: null,
-            provider: 'guest',
-            providerId: 'guest',
-          },
-        })).id;
+      const userId = ctx.userId;
       const filteredPath: typeof input.path = filterLowAccuracyPoints(input.path);
       const pace = input.distance > 0
         ? (input.duration / 60) / input.distance

@@ -37,8 +37,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed left-4 right-4 z-50 mx-auto flex h-[74px] w-[min(720px,calc(100vw-2rem))] items-center justify-between rounded-[28px] border border-white/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(247,252,255,0.88))] px-3 pb-[max(env(safe-area-inset-bottom),0.4rem)] shadow-[0_28px_58px_-34px_rgba(15,23,42,0.72)] ring-1 ring-sky-100/70 backdrop-blur-xl"
-      style={{ bottom: 'max(env(safe-area-inset-bottom), 0.75rem)' }}
+      className="fixed inset-x-0 bottom-0 z-50 grid h-[74px] w-full grid-cols-5 items-center border-t border-white/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(247,252,255,0.9))] px-3 pb-[max(env(safe-area-inset-bottom),0.4rem)] shadow-[0_-18px_40px_-30px_rgba(15,23,42,0.72)] backdrop-blur-xl"
       aria-label="하단 내비게이션"
     >
       {navItems.map((item, index) => {
@@ -48,14 +47,14 @@ export function BottomNav() {
 
         return (
           <Link
-            key={item.href}
-            href={item.href}
-            aria-label={t(item.labelKey)}
-            className={cn(
-              'rg-touch-icon rg-press group relative flex h-12 min-w-[58px] items-center justify-center rounded-2xl px-2 text-slate-600 transition-all duration-300',
-              isActive && !isCenter && 'bg-[linear-gradient(135deg,#e0f2fe_0%,#dbeafe_100%)] text-sky-800 shadow-[0_12px_24px_-18px_rgba(2,132,199,0.7)]',
-              isCenter && 'border border-sky-100/90 bg-[linear-gradient(135deg,#f0f9ff_0%,#e0f2fe_100%)] text-sky-700 shadow-[0_14px_24px_-20px_rgba(14,116,144,0.75)] ring-1 ring-white/70',
-              isCenter && isActive && 'bg-[linear-gradient(135deg,#e0f2fe_0%,#dbeafe_100%)] text-sky-800 shadow-[0_16px_26px_-18px_rgba(2,132,199,0.62)]'
+              key={item.href}
+              href={item.href}
+              aria-label={t(item.labelKey)}
+              className={cn(
+                'rg-touch-icon rg-press group relative mx-auto flex h-12 min-w-[58px] items-center justify-center rounded-2xl px-2 text-slate-600 transition-all duration-300',
+                isActive && !isCenter && 'bg-[linear-gradient(135deg,#e0f2fe_0%,#dbeafe_100%)] text-sky-800 shadow-[0_12px_24px_-18px_rgba(2,132,199,0.7)]',
+                isCenter && 'border border-sky-100/90 bg-[linear-gradient(135deg,#f0f9ff_0%,#e0f2fe_100%)] text-sky-700 shadow-[0_14px_24px_-20px_rgba(14,116,144,0.75)] ring-1 ring-white/70',
+                isCenter && isActive && 'bg-[linear-gradient(135deg,#e0f2fe_0%,#dbeafe_100%)] text-sky-800 shadow-[0_16px_26px_-18px_rgba(2,132,199,0.62)]'
             )}
           >
             {!isCenter && (

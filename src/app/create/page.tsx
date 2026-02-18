@@ -33,8 +33,29 @@ interface Waypoint {
 const MAX_WAYPOINT_COUNT = 30;
 const MAX_PERSIST_WAYPOINT_COUNT = 220;
 const CREATE_MARKER_HELP_STORAGE_KEY = 'running-go:create-marker-help:v1';
+const MAP_VIEWPORT_STORAGE_KEY = 'running-go:map-viewport:v1';
 const DRAW_POINT_SAMPLE_COUNT = 16;
 const DRAW_POINT_MIN_DISTANCE_M = 12;
+
+const readStoredMapViewport = () => {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(MAP_VIEWPORT_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { lat?: number; lng?: number; zoom?: number };
+    if (typeof parsed.lat !== 'number' || typeof parsed.lng !== 'number' || typeof parsed.zoom !== 'number') {
+      return null;
+    }
+    return {
+      lat: parsed.lat,
+      lng: parsed.lng,
+      zoom: parsed.zoom,
+    };
+  } catch {
+    return null;
+  }
+};
 
 const hasCoord = (value: unknown): value is { coord: { lat: () => number; lng: () => number } } => {
   if (!value || typeof value !== 'object') return false;
@@ -389,9 +410,9 @@ export default function CreateCoursePage() {
       routeOutlinePolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#ffffff',
+        strokeColor: '#15803d',
         strokeWeight: 8,
-        strokeOpacity: 0.9,
+        strokeOpacity: 0.5,
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
         clickable: false,
@@ -404,7 +425,7 @@ export default function CreateCoursePage() {
       routeMainPolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#0ea5e9',
+        strokeColor: '#15803d',
         strokeWeight: 6,
         strokeOpacity: 0.98,
         strokeLineCap: 'round',
@@ -447,9 +468,9 @@ export default function CreateCoursePage() {
       drawOutlinePolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#ffffff',
+        strokeColor: '#15803d',
         strokeWeight: 7,
-        strokeOpacity: 0.9,
+        strokeOpacity: 0.5,
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
         clickable: false,
@@ -462,7 +483,7 @@ export default function CreateCoursePage() {
       drawMainPolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#f97316',
+        strokeColor: '#15803d',
         strokeWeight: 5,
         strokeOpacity: 0.95,
         strokeLineCap: 'round',
@@ -704,9 +725,12 @@ export default function CreateCoursePage() {
         if (!isMounted || !mapContainer.current) return;
 
         mapSdkRef.current = sdk;
+        const storedViewport = readStoredMapViewport();
         const mapInstance = new sdk.Map(mapContainer.current, {
-          center: new sdk.LatLng(37.5665, 126.978),
-          zoom: 14,
+          center: storedViewport
+            ? new sdk.LatLng(storedViewport.lat, storedViewport.lng)
+            : new sdk.LatLng(37.5665, 126.978),
+          zoom: storedViewport ? storedViewport.zoom : 14,
           mapTypeControl: false,
           zoomControl: false,
         });
@@ -771,7 +795,7 @@ export default function CreateCoursePage() {
           sdk.Event.addListener(mapInstance, 'touchend', endDraw),
         ];
 
-        if (navigator.geolocation) {
+        if (!storedViewport && navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             (position) => {
               if (!isMounted) return;

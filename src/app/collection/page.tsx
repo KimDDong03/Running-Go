@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ChevronLeft, MapPin, Trash2 } from 'lucide-react';
+import { Heart, MapPin, Trash2 } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 import { loadMapSdk, type MapLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
@@ -42,24 +42,33 @@ export default function CollectionPage() {
   const router = useRouter();
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
-  const { data: session, status: sessionStatus } = useSession();
+  const { status: sessionStatus } = useSession();
   const utils = trpc.useUtils();
   const { data, isLoading, isError, error, refetch } = trpc.collection.listByUser.useQuery();
   const { data: createdData, isLoading: isCreatedLoading } = trpc.course.listByUser.useQuery(
-    { userId: session?.user?.id ?? '', limit: 50 },
-    { enabled: sessionStatus === 'authenticated' && Boolean(session?.user?.id) }
+    { limit: 50 },
+    { enabled: sessionStatus === 'authenticated' }
+  );
+  const { data: likedData, isLoading: isLikedLoading } = trpc.like.listByUser.useQuery(
+    undefined,
+    { enabled: sessionStatus === 'authenticated' }
   );
 
   const [sort, setSort] = useState<'recent' | 'count'>('recent');
-  const [selectedTag, setSelectedTag] = useState<string>('ALL');
-  const [viewType, setViewType] = useState<'collected' | 'created'>('collected');
+  const [viewType, setViewType] = useState<'collected' | 'created' | 'liked'>('collected');
+  const [likedFilter, setLikedFilter] = useState<'ALL' | 'COLLECTED' | 'PENDING'>('ALL');
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [isRoutePreviewOpen, setIsRoutePreviewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<{ id: string; title: string } | null>(null);
   const previewMapContainerRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const previewMapRef = useRef<MapLike | null>(null);
   const previewPolylinesRef = useRef<MapPolylineLike[]>([]);
+  const { data: historyData, isLoading: isHistoryLoading } = trpc.collection.historyByCourse.useQuery(
+    { courseId: historyTarget?.id ?? '', limit: 50 },
+    { enabled: Boolean(historyTarget?.id) }
+  );
   const difficultyLabel = (difficulty: Difficulty) => {
     if (!isEnglish) {
       return difficultyLabels[difficulty];
@@ -95,7 +104,6 @@ export default function CollectionPage() {
     title: string;
     totalDistance: number;
     difficulty: Difficulty;
-    tags: string[];
     waypoints: { lat: number; lng: number; order: number }[];
     centerLat: number;
     centerLng: number;
@@ -113,7 +121,6 @@ export default function CollectionPage() {
       title: collection.course.title,
       totalDistance: collection.course.totalDistance,
       difficulty: collection.course.difficulty,
-      tags: collection.course.tags,
       waypoints: Array.isArray(collection.course.waypoints)
         ? (collection.course.waypoints as { lat: number; lng: number; order: number }[])
         : [],
@@ -132,7 +139,6 @@ export default function CollectionPage() {
       title: course.title,
       totalDistance: course.totalDistance,
       difficulty: course.difficulty,
-      tags: Array.isArray(course.tags) ? course.tags : [],
       waypoints: Array.isArray(course.waypoints)
         ? (course.waypoints as { lat: number; lng: number; order: number }[])
         : [],
@@ -145,27 +151,46 @@ export default function CollectionPage() {
     }));
   }, [createdData?.courses]);
 
-  const baseCourses = viewType === 'created' ? createdCourses : collectedCourses;
+  const likedCourses = useMemo<RouteCourse[]>(() => {
+    if (!likedData?.likes) return [];
+    return likedData.likes.map((liked) => ({
+      id: liked.course.id,
+      title: liked.course.title,
+      totalDistance: liked.course.totalDistance,
+      difficulty: liked.course.difficulty,
+      waypoints: Array.isArray(liked.course.waypoints)
+        ? (liked.course.waypoints as { lat: number; lng: number; order: number }[])
+        : [],
+      centerLat: liked.course.centerLat,
+      centerLng: liked.course.centerLng,
+      thumbnailUrl: liked.course.thumbnailUrl,
+      createdAt: liked.likedAt,
+      likeCount: liked.course.likeCount,
+      count: liked.isCollected ? 1 : 0,
+    }));
+  }, [likedData?.likes]);
 
-  const availableTags = (() => {
-    const tags = new Set<string>();
-    baseCourses.forEach((course) => {
-      course.tags.forEach((tag) => {
-        tags.add(tag);
-      });
-    });
-    return ['ALL', ...Array.from(tags)];
-  })();
+  const baseCourses = viewType === 'created'
+    ? createdCourses
+    : viewType === 'liked'
+      ? likedCourses
+      : collectedCourses;
 
   const sortedCourses = (() => {
     if (!baseCourses.length) return [];
-    const filtered = selectedTag === 'ALL'
-      ? baseCourses
-      : baseCourses.filter((course) => course.tags.includes(selectedTag));
+    const filteredByLikedStatus = viewType === 'liked'
+      ? baseCourses.filter((course) => {
+          if (likedFilter === 'ALL') return true;
+          if (likedFilter === 'COLLECTED') return (course.count ?? 0) > 0;
+          return (course.count ?? 0) === 0;
+        })
+      : baseCourses;
+
+    const filtered = filteredByLikedStatus;
 
     const next = [...filtered];
     if (sort === 'count') {
-      if (viewType === 'created') {
+      if (viewType === 'created' || viewType === 'liked') {
         return next.sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0));
       }
 
@@ -180,7 +205,6 @@ export default function CollectionPage() {
   })();
 
   const selectedCourses = sortedCourses.filter((course) => selectedCourseIds.includes(course.id));
-  const hasAnyCourses = collectedCourses.length > 0 || createdCourses.length > 0;
 
   useEffect(() => {
     if (!isRoutePreviewOpen || !previewMapContainerRef.current) {
@@ -188,8 +212,6 @@ export default function CollectionPage() {
     }
 
     let isMounted = true;
-    const colors = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#ef4444', '#14b8a6'];
-
     const clearPreviewPolylines = () => {
       previewPolylinesRef.current.forEach((polyline) => {
         polyline.setMap(null);
@@ -203,7 +225,7 @@ export default function CollectionPage() {
       const bounds = new sdk.LatLngBounds();
       let hasBounds = false;
 
-      selectedCourses.forEach((course, index) => {
+      selectedCourses.forEach((course) => {
         const sortedWaypoints = [...course.waypoints].sort((a, b) => a.order - b.order);
         const path = sortedWaypoints.map((point) => new sdk.LatLng(point.lat, point.lng));
         if (path.length < 2) {
@@ -215,13 +237,12 @@ export default function CollectionPage() {
           hasBounds = true;
         });
 
-        const color = colors[index % colors.length];
         const outline = new sdk.Polyline({
           map: mapInstance,
           path,
-          strokeColor: '#ffffff',
+          strokeColor: '#15803d',
           strokeWeight: 8,
-          strokeOpacity: 0.85,
+          strokeOpacity: 0.5,
           strokeLineCap: 'round',
           strokeLineJoin: 'round',
           clickable: false,
@@ -229,7 +250,7 @@ export default function CollectionPage() {
         const main = new sdk.Polyline({
           map: mapInstance,
           path,
-          strokeColor: color,
+          strokeColor: '#15803d',
           strokeWeight: 5,
           strokeOpacity: 0.95,
           strokeLineCap: 'round',
@@ -241,7 +262,7 @@ export default function CollectionPage() {
       });
 
       if (hasBounds) {
-        mapInstance.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+        mapInstance.fitBounds(bounds, { top: 72, right: 72, bottom: 72, left: 72 });
       }
     };
 
@@ -291,22 +312,8 @@ export default function CollectionPage() {
 
   return (
     <div className="rg-page">
-      <header className="rg-page-header px-4 py-5 sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rg-touch-icon rg-press rounded-full"
-            onClick={() => router.replace('/')}
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </Button>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{isEnglish ? 'My Collection' : '내 도감'}</h1>
-        </div>
-      </header>
-
-      <main className="rg-page-main p-4 space-y-4">
-        {isLoading || (sessionStatus === 'authenticated' && isCreatedLoading) ? (
+      <main className="rg-page-main p-4 pt-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] space-y-4">
+        {isLoading || (sessionStatus === 'authenticated' && (isCreatedLoading || isLikedLoading)) ? (
           <div className="text-center py-20 text-slate-500">{isEnglish ? 'Loading...' : '불러오는 중...'}</div>
         ) : isError ? (
           error?.data?.code === 'UNAUTHORIZED' ? (
@@ -324,13 +331,6 @@ export default function CollectionPage() {
               onAction={() => refetch()}
             />
           )
-        ) : !hasAnyCourses ? (
-          <div className="text-center py-20">
-            <p className="text-slate-500">{isEnglish ? 'No collected courses yet.' : '아직 수집한 코스가 없습니다'}</p>
-            <Link href="/courses">
-              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">{isEnglish ? 'Browse Courses' : '코스 보러가기'}</Button>
-            </Link>
-          </div>
         ) : (
             <div className="space-y-4">
             <div className="rg-chip-bar rg-scroll-row">
@@ -350,7 +350,43 @@ export default function CollectionPage() {
                 >
                   {isEnglish ? 'Created Courses' : '제작한 코스'}
                 </Button>
+              <Button
+                size="sm"
+                variant={viewType === 'liked' ? 'default' : 'outline'}
+                className="rg-touch rg-press rounded-full"
+                onClick={() => setViewType('liked')}
+              >
+                {isEnglish ? 'Saved Courses' : '코스 보관함'}
+              </Button>
             </div>
+            {viewType === 'liked' && (
+              <div className="rg-chip-bar rg-scroll-row">
+                <Button
+                  size="sm"
+                  variant={likedFilter === 'ALL' ? 'default' : 'outline'}
+                  className="rg-touch rg-press rounded-full"
+                  onClick={() => setLikedFilter('ALL')}
+                >
+                  {isEnglish ? 'All' : '전체'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={likedFilter === 'COLLECTED' ? 'default' : 'outline'}
+                  className="rg-touch rg-press rounded-full"
+                  onClick={() => setLikedFilter('COLLECTED')}
+                >
+                  {isEnglish ? 'Collected' : '수집 완료'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={likedFilter === 'PENDING' ? 'default' : 'outline'}
+                  className="rg-touch rg-press rounded-full"
+                  onClick={() => setLikedFilter('PENDING')}
+                >
+                  {isEnglish ? 'Pending' : '수집 미완료'}
+                </Button>
+              </div>
+            )}
             <div className="rg-chip-bar rg-scroll-row">
               <Button
                 size="sm"
@@ -366,19 +402,10 @@ export default function CollectionPage() {
                 className="rg-touch rg-press rounded-full"
                 onClick={() => setSort('count')}
               >
-                {viewType === 'created' ? (isEnglish ? 'Most Liked' : '인기순') : (isEnglish ? 'Most Collected' : '수집 많은 순')}
+                {viewType === 'created' || viewType === 'liked'
+                  ? (isEnglish ? 'Most Liked' : '인기순')
+                  : (isEnglish ? 'Most Collected' : '수집 많은 순')}
               </Button>
-              <select
-                value={selectedTag}
-                onChange={(event) => setSelectedTag(event.target.value)}
-                className="rg-touch h-11 rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
-              >
-                {availableTags.map((tag) => (
-                  <option key={tag} value={tag}>
-                    {tag === 'ALL' ? (isEnglish ? 'All Tags' : '전체 태그') : `#${tag}`}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
@@ -432,7 +459,11 @@ export default function CollectionPage() {
                 <div className="col-span-2 rounded-2xl border border-white/70 bg-white/80 py-10 text-center text-sm text-slate-500">
                   {viewType === 'created'
                     ? (isEnglish ? 'No created courses yet.' : '아직 제작한 코스가 없습니다')
-                    : (isEnglish ? 'No collected courses match this tag.' : '태그 조건에 맞는 수집 코스가 없습니다')}
+                    : viewType === 'liked'
+                      ? (sessionStatus !== 'authenticated'
+                          ? (isEnglish ? 'Sign in to use saved courses.' : '코스 보관함은 로그인 후 이용할 수 있습니다')
+                          : (isEnglish ? 'No liked courses match this filter.' : '필터 조건에 맞는 코스 보관함 항목이 없습니다'))
+                      : (isEnglish ? 'No collected courses yet.' : '아직 수집한 코스가 없습니다')}
                 </div>
               ) : sortedCourses.map((course) => {
                 const isSelected = selectedCourseIds.includes(course.id);
@@ -442,6 +473,11 @@ export default function CollectionPage() {
                   key={course.id}
                   href={viewType === 'created' ? `/?focusCourseId=${course.id}` : `/courses/${course.id}`}
                   className="block w-full text-left"
+                  onClick={(event) => {
+                    if (viewType !== 'collected') return;
+                    event.preventDefault();
+                    setHistoryTarget({ id: course.id, title: course.title });
+                  }}
                 >
                   <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
                     <div className="relative h-28 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
@@ -494,7 +530,7 @@ export default function CollectionPage() {
                         alt={course.title}
                         fill
                         sizes="50vw"
-                        className="object-cover"
+                            className="object-contain"
                         unoptimized
                       />
                     </div>
@@ -504,7 +540,15 @@ export default function CollectionPage() {
                       </div>
                       <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
                         {viewType === 'created' ? (
-                          <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3 w-3 shrink-0" />{isEnglish ? 'My Course' : '내 제작'}</span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3 w-3 shrink-0" />{isEnglish ? 'My Course' : '내 제작'}</span>
+                            <span className="shrink-0">❤️ {course.likeCount ?? 0}</span>
+                          </div>
+                        ) : viewType === 'liked' ? (
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="inline-flex min-w-0 items-center gap-1"><Heart className="h-3 w-3 shrink-0 text-red-500" />{isEnglish ? 'Saved' : '보관함'}</span>
+                            <span className="shrink-0">{(course.count ?? 0) > 0 ? (isEnglish ? 'Collected' : '수집 완료') : (isEnglish ? 'Pending' : '수집 미완료')}</span>
+                          </div>
                         ) : (
                           <span className="truncate">{course.count ?? 0}{isEnglish ? ' collected' : '회 수집'}</span>
                         )}
@@ -527,6 +571,47 @@ export default function CollectionPage() {
           </div>
         )}
       </main>
+
+      <Dialog open={Boolean(historyTarget)} onOpenChange={(open) => {
+        if (!open) {
+          setHistoryTarget(null);
+        }
+      }}>
+        <DialogContent className="rounded-3xl border border-white/80 bg-white/95 p-6 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.65)]">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">
+              {isEnglish ? 'My Run Records' : '내 러닝 기록'}
+            </DialogTitle>
+            <DialogDescription className="text-slate-600">
+              {historyTarget?.title ?? ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isHistoryLoading ? (
+            <div className="py-8 text-center text-sm text-slate-500">{isEnglish ? 'Loading...' : '불러오는 중...'}</div>
+          ) : !historyData?.sessions.length ? (
+            <div className="py-8 text-center text-sm text-slate-500">{isEnglish ? 'No collected run records yet.' : '아직 수집된 러닝 기록이 없습니다'}</div>
+          ) : (
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+              {historyData.sessions.map((session) => (
+                <div key={session.id} className="rounded-2xl border border-white/70 bg-white/85 p-3">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>{new Date(session.endedAt).toLocaleString(isEnglish ? 'en-US' : 'ko-KR')}</span>
+                    <span>Match {Math.round(session.matchRate ?? 0)}%</span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3 text-sm text-slate-700">
+                    <span>{session.distance.toFixed(2)}km</span>
+                    <span>•</span>
+                    <span>{Math.floor(session.duration / 60)}{isEnglish ? ' min' : '분'}</span>
+                    <span>•</span>
+                    <span>{session.pace.toFixed(2)} {isEnglish ? 'min/km' : '분/km'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
         if (!open && !deleteCourse.isPending) {

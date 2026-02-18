@@ -1,8 +1,55 @@
 import { z } from 'zod';
-import { createTRPCRouter, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 
 export const likeRouter = createTRPCRouter({
+  listByUser: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50) }).optional())
+    .query(async ({ input, ctx }) => {
+      const likes = await prisma.like.findMany({
+        where: {
+          userId: ctx.userId,
+          course: {
+            status: 'ACTIVE',
+            isPublic: true,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: input?.limit ?? 50,
+        include: {
+          course: {
+            include: {
+              _count: { select: { likes: true } },
+              collections: {
+                where: { userId: ctx.userId },
+                select: { id: true },
+                take: 1,
+              },
+            },
+          },
+        },
+      });
+
+      return {
+        likes: likes.map((like) => ({
+          id: like.id,
+          likedAt: like.createdAt,
+          isCollected: like.course.collections.length > 0,
+          course: {
+            id: like.course.id,
+            title: like.course.title,
+            thumbnailUrl: like.course.thumbnailUrl,
+            waypoints: like.course.waypoints,
+            centerLat: like.course.centerLat,
+            centerLng: like.course.centerLng,
+            totalDistance: like.course.totalDistance,
+            difficulty: like.course.difficulty,
+            likeCount: like.course._count.likes,
+          },
+        })),
+      };
+    }),
+
   status: publicProcedure
     .input(z.object({ courseId: z.string() }))
     .query(async ({ input, ctx }) => {

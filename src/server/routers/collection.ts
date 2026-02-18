@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createTRPCRouter, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 import { filterLowAccuracyPoints, validateCollection } from '@/lib/path-matching';
 
@@ -71,26 +71,16 @@ export const collectionRouter = createTRPCRouter({
             centerLng: collection.course.centerLng,
             totalDistance: collection.course.totalDistance,
             difficulty: collection.course.difficulty,
-            tags: collection.course.tags,
           },
           lastAt: collection.lastAt,
         })),
         nextCursor,
       };
     }),
-  collect: publicProcedure
-    .input(
-      z.object({
-        courseId: z.string(),
-        path: z.array(PathPointSchema).min(2),
-        distance: z.number().positive(),
-        duration: z.number().int().positive(),
-        calories: z.number().int().optional(),
-        startedAt: z.date().optional(),
-        endedAt: z.date().optional(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
+
+  historyByCourse: publicProcedure
+    .input(z.object({ courseId: z.string(), limit: z.number().min(1).max(100).default(30) }))
+    .query(async ({ input, ctx }) => {
       const userId = ctx.userId
         ?? (await prisma.user.upsert({
           where: { providerId: 'guest' },
@@ -103,6 +93,44 @@ export const collectionRouter = createTRPCRouter({
             providerId: 'guest',
           },
         })).id;
+
+      const sessions = await prisma.runSession.findMany({
+        where: {
+          userId,
+          courseId: input.courseId,
+          isCollected: true,
+        },
+        orderBy: { endedAt: 'desc' },
+        take: input.limit,
+        select: {
+          id: true,
+          distance: true,
+          duration: true,
+          pace: true,
+          matchRate: true,
+          endedAt: true,
+        },
+      });
+
+      return {
+        sessions,
+      };
+    }),
+
+  collect: protectedProcedure
+    .input(
+      z.object({
+        courseId: z.string(),
+        path: z.array(PathPointSchema).min(2),
+        distance: z.number().positive(),
+        duration: z.number().int().positive(),
+        calories: z.number().int().optional(),
+        startedAt: z.date().optional(),
+        endedAt: z.date().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.userId;
       const course = await prisma.course.findUnique({
         where: { id: input.courseId },
       });

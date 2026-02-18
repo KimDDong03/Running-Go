@@ -104,6 +104,7 @@
   --ring: #38bdf8;
 }
 
+
 @keyframes rg-float {
   0%,
   100% {
@@ -168,6 +169,7 @@
     box-shadow: 0 16px 34px -30px rgba(15, 23, 42, 0.7);
   }
 
+
   .rg-page-main {
     @apply mx-auto w-full max-w-5xl;
   }
@@ -181,6 +183,7 @@
     @apply rounded-full border border-white/70 bg-white/72 p-1.5 backdrop-blur;
     box-shadow: 0 14px 26px -22px rgba(15, 23, 42, 0.55);
   }
+
 
   .rg-soft-panel {
     @apply rounded-2xl border border-white/70 bg-white/75;

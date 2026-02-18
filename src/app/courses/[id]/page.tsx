@@ -33,7 +33,6 @@ interface CourseDetail {
   centerLat: number;
   centerLng: number;
   thumbnailUrl: string | null;
-  tags: string[];
   isPublic: boolean;
   likeCount: number;
   collectCount: number;
@@ -74,7 +73,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const { data: course, isLoading, isError } = trpc.course.byId.useQuery({ id });
   const utils = trpc.useUtils();
   const { data: likeStatus, refetch: refetchLike } = trpc.like.status.useQuery({ courseId: id });
@@ -183,9 +182,9 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         outlinePolylineRef.current = new sdk.Polyline({
           map,
           path: coordinates,
-          strokeColor: '#ffffff',
+          strokeColor: '#15803d',
           strokeWeight: 8,
-          strokeOpacity: 0.9,
+          strokeOpacity: 0.5,
           strokeLineCap: 'round',
           strokeLineJoin: 'round',
           clickable: false,
@@ -198,7 +197,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         mainPolylineRef.current = new sdk.Polyline({
           map,
           path: coordinates,
-          strokeColor: '#0ea5e9',
+          strokeColor: '#15803d',
           strokeWeight: 5,
           strokeOpacity: 0.96,
           strokeLineCap: 'round',
@@ -352,16 +351,10 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
           </CardContent>
         </Card>
 
-        {/* Difficulty & Tags */}
         <div className="flex flex-wrap items-center gap-2">
           <Badge className={`${difficultyColors[courseDetail.difficulty]} rounded-full text-sm px-3 py-1`}>
             {difficultyLabel(courseDetail.difficulty, isEnglish)}
           </Badge>
-          {courseDetail.tags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="rounded-full text-sm px-3 py-1">
-              #{tag}
-            </Badge>
-          ))}
         </div>
 
         {/* Description */}
@@ -379,12 +372,20 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
       {/* Bottom Action */}
       <div className="rg-safe-bottom fixed bottom-0 left-0 right-0 border-t border-white/70 bg-white/85 p-4 backdrop-blur-xl shadow-[0_-14px_30px_-26px_rgba(15,23,42,0.7)]">
-        <Link href={`/run?courseId=${courseDetail.id}`}>
-          <Button size="lg" className="rg-touch w-full h-14 text-lg rounded-2xl">
-            <Play className="w-5 h-5 mr-2" />
-            {isEnglish ? 'Start Run With This Course' : '이 코스로 러닝 시작'}
-          </Button>
-        </Link>
+        <Button
+          size="lg"
+          className="rg-touch w-full h-14 text-lg rounded-2xl"
+          onClick={() => {
+            if (sessionStatus !== 'authenticated') {
+              router.push('/login');
+              return;
+            }
+            router.push(`/run?courseId=${courseDetail.id}`);
+          }}
+        >
+          <Play className="w-5 h-5 mr-2" />
+          {isEnglish ? 'Start Run With This Course' : '이 코스로 러닝 시작'}
+        </Button>
       </div>
     </div>
   );
