@@ -25,6 +25,7 @@ import {
 } from '@/lib/map/sdk';
 import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
 import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
+import { trackEvent } from '@/lib/analytics';
 
 interface GPSPoint {
   lat: number;
@@ -80,6 +81,7 @@ function RunPageContent() {
   const isAutoCenterRef = useRef(true);
   const courseWaypointsRef = useRef<{ lat: number; lng: number; order: number }[]>([]);
   const hasInitialLocationRef = useRef(false);
+  const hasTrackedRunViewedRef = useRef(false);
 
   const searchParams = useSearchParams();
   const courseId = searchParams.get('courseId');
@@ -92,6 +94,16 @@ function RunPageContent() {
   const freeRunMutation = trpc.runSession.createFreeRun.useMutation();
   const { data: course } = trpc.course.byId.useQuery({ id: courseId ?? '' }, { enabled: Boolean(courseId) });
   const { data: profileSummary } = trpc.profile.summary.useQuery();
+
+  useEffect(() => {
+    if (hasTrackedRunViewedRef.current) return;
+
+    trackEvent('run_viewed', {
+      course_id: courseId ?? 'none',
+      is_authed: sessionStatus === 'authenticated',
+    });
+    hasTrackedRunViewedRef.current = true;
+  }, [courseId, sessionStatus]);
 
   useEffect(() => {
     isTrackingRef.current = isTracking;
@@ -443,9 +455,15 @@ function RunPageContent() {
   };
 
   const startTracking = () => {
+    trackEvent('run_started', {
+      course_id: courseId ?? 'none',
+      source: isPaused && hasPath ? 'resume_button' : 'start_button',
+      is_authed: sessionStatus === 'authenticated',
+    });
+
     if (sessionStatus !== 'authenticated') {
       toast.error(isEnglish ? 'Please sign in to start a run.' : '러닝을 시작하려면 로그인해주세요');
-      router.push('/login');
+      router.push(`/login?callbackUrl=${encodeURIComponent(`/run${courseId ? `?courseId=${courseId}` : ''}`)}`);
       return;
     }
 
@@ -476,13 +494,21 @@ function RunPageContent() {
       },
       (err) => {
         toast.error(isEnglish ? `GPS error: ${err.message}` : `GPS 오류: ${err.message}`);
-        stopTracking();
+        stopTracking('gps_error');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  const stopTracking = () => {
+  const stopTracking = (reason: 'user' | 'gps_error' | 'dialog_confirmed' = 'user') => {
+    trackEvent('run_stopped', {
+      course_id: courseId ?? 'none',
+      reason,
+      duration_sec: duration,
+      distance_m: Math.round(distance),
+      point_count: pathRef.current.length,
+    });
+
     if (watchId.current) {
       navigator.geolocation.clearWatch(watchId.current);
       watchId.current = null;
@@ -509,6 +535,12 @@ function RunPageContent() {
         },
         {
           onSuccess: (data) => {
+            trackEvent('run_saved', {
+              run_session_id: data.runSessionId,
+              course_id: courseId,
+              is_collected: data.isCollected,
+              match_rate: Number(data.matchRate ?? 0),
+            });
             const reason = data.reason ? encodeURIComponent(data.reason) : '';
             router.push(
               `/run/result?courseId=${courseId}`
@@ -543,6 +575,12 @@ function RunPageContent() {
         },
         {
           onSuccess: (data) => {
+            trackEvent('run_saved', {
+              run_session_id: data.runSessionId,
+              course_id: 'none',
+              is_collected: false,
+              match_rate: 0,
+            });
             router.push(`/run/result?runSessionId=${data.runSessionId}&isCollected=false&matchRate=0`);
           },
           onError: (error) => {
@@ -565,7 +603,7 @@ function RunPageContent() {
       setIsStopDialogOpen(true);
       return;
     }
-    stopTracking();
+    stopTracking('user');
   };
 
   const pauseTracking = () => {
@@ -580,6 +618,12 @@ function RunPageContent() {
     }
     setIsTracking(false);
     setIsPaused(true);
+    trackEvent('run_paused', {
+      course_id: courseId ?? 'none',
+      duration_sec: duration,
+      distance_m: Math.round(distance),
+      point_count: pathRef.current.length,
+    });
   };
 
   const resumeTracking = () => {
@@ -599,7 +643,7 @@ function RunPageContent() {
       },
       (err) => {
         toast.error(isEnglish ? `GPS error: ${err.message}` : `GPS 오류: ${err.message}`);
-        stopTracking();
+        stopTracking('gps_error');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
@@ -759,7 +803,7 @@ function RunPageContent() {
               className="rounded-full"
               onClick={() => {
                 setIsStopDialogOpen(false);
-                stopTracking();
+                stopTracking('dialog_confirmed');
               }}
             >
               {isEnglish ? 'Stop and Save' : '종료하고 저장'}

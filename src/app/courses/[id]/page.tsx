@@ -15,6 +15,7 @@ import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { ChevronLeft, Heart, MapPin, Clock, Trophy, User, Play, Trash2 } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 import { loadMapSdk, type MapLike, type MapPolylineLike, type MapSdkApi } from '@/lib/map/sdk';
+import { trackEvent } from '@/lib/analytics';
 
 interface Waypoint {
   lat: number;
@@ -207,7 +208,9 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       }
 
       const bounds = new sdk.LatLngBounds();
-      coordinates.forEach((coord) => bounds.extend(coord));
+      for (const coord of coordinates) {
+        bounds.extend(coord);
+      }
       map.fitBounds(bounds, { top: 36, right: 36, bottom: 36, left: 36 });
     } else {
       outlinePolylineRef.current?.setMap(null);
@@ -376,8 +379,13 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
           size="lg"
           className="rg-touch w-full h-14 text-lg rounded-2xl"
           onClick={() => {
+            trackEvent('run_start_clicked', {
+              course_id: courseDetail.id,
+              source: 'course_detail',
+              is_authed: sessionStatus === 'authenticated',
+            });
             if (sessionStatus !== 'authenticated') {
-              router.push('/login');
+              router.push(`/login?callbackUrl=${encodeURIComponent(`/run?courseId=${courseDetail.id}`)}`);
               return;
             }
             router.push(`/run?courseId=${courseDetail.id}`);

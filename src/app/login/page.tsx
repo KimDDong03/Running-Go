@@ -2,23 +2,38 @@
 
 import { useEffect, useState } from 'react';
 import { signIn, useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
+import { trackEvent } from '@/lib/analytics';
 
 export default function LoginPage() {
   const { data: session } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { locale } = useLocale();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const isEnglish = locale === 'en';
+  const rawCallbackUrl = searchParams.get('callbackUrl');
+  const callbackUrl = rawCallbackUrl && rawCallbackUrl.startsWith('/')
+    ? rawCallbackUrl
+    : '/';
+
+  useEffect(() => {
+    trackEvent('login_viewed', {
+      callback_url: callbackUrl,
+    });
+  }, [callbackUrl]);
 
   useEffect(() => {
     if (session?.user) {
-      router.replace('/profile');
+      trackEvent('login_completed', {
+        callback_url: callbackUrl,
+      });
+      router.replace(callbackUrl);
     }
-  }, [router, session?.user]);
+  }, [callbackUrl, router, session?.user]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -54,7 +69,10 @@ export default function LoginPage() {
           onClick={async () => {
             if (isSigningIn) return;
             setIsSigningIn(true);
-            await signIn('google', { callbackUrl: '/profile' });
+            trackEvent('login_started', {
+              callback_url: callbackUrl,
+            });
+            await signIn('google', { callbackUrl });
           }}
           disabled={isSigningIn}
           className="rg-touch h-12 w-full rounded-2xl"

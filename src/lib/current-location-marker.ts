@@ -43,5 +43,45 @@ export const createCurrentLocationMarkerElement = (
   marker.appendChild(halo);
   marker.appendChild(core);
 
+  const heading = document.createElement('span');
+  heading.dataset.role = 'heading-indicator';
+  heading.style.position = 'absolute';
+  heading.style.left = '50%';
+  heading.style.top = '50%';
+  heading.style.width = `${markerSize}px`;
+  heading.style.height = `${markerSize}px`;
+  heading.style.transform = 'translate(-50%, -50%) rotate(0deg)';
+  heading.style.transformOrigin = '50% 50%';
+  heading.style.pointerEvents = 'none';
+  heading.style.overflow = 'visible';
+  heading.style.opacity = '0';
+  heading.style.transition = 'opacity 120ms ease-out';
+
+  const headingArc = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  headingArc.setAttribute('viewBox', '0 0 28 28');
+  headingArc.setAttribute('width', '30');
+  headingArc.setAttribute('height', '30');
+  headingArc.style.position = 'absolute';
+  headingArc.style.left = '50%';
+  headingArc.style.top = '50%';
+  headingArc.style.transform = 'translate(-50%, -50%) translateY(-10px)';
+  headingArc.style.filter = 'drop-shadow(0 3px 6px rgba(2,132,199,0.25))';
+
+  const arcPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  arcPath.setAttribute('d', 'M6.4 5.3 A11.6 11.6 0 0 1 21.6 5.3');
+  arcPath.setAttribute('fill', 'none');
+  arcPath.setAttribute('stroke', 'rgba(14, 165, 233, 0.94)');
+  arcPath.setAttribute('stroke-width', '3.8');
+  arcPath.setAttribute('stroke-linecap', 'round');
+
+  const pointer = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  pointer.setAttribute('d', 'M14 1.8 L11.8 6.2 H16.2 Z');
+  pointer.setAttribute('fill', 'rgba(14, 165, 233, 0.98)');
+
+  headingArc.appendChild(arcPath);
+  headingArc.appendChild(pointer);
+  heading.appendChild(headingArc);
+  marker.appendChild(heading);
+
   return marker;
 };

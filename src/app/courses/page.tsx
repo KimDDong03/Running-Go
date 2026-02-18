@@ -11,6 +11,7 @@ import { loadMapSdk, type MapLike, type MapMarkerLike, type MapPolylineLike, typ
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 import { createCurrentLocationMarkerElement } from '@/lib/current-location-marker';
 import { LOCATION_FAB_BASE_CLASS, LOCATION_FAB_TRANSITION_CLASS, getLocationFabBottom } from '@/lib/map-controls';
+import { trackEvent } from '@/lib/analytics';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -44,7 +45,7 @@ const ONBOARDING_STORAGE_KEY = 'running-go:onboarding:v1';
 const LAST_LOCATION_STORAGE_KEY = 'running-go:last-location:v1';
 const MAP_VIEWPORT_STORAGE_KEY = 'running-go:map-viewport:v1';
 
-type HeadingMode = 'off' | 'cone' | 'rotate';
+type HeadingMode = 'off' | 'follow' | 'fan';
 
 const ONBOARDING_STEPS_KO = [
   {
@@ -166,20 +167,23 @@ export default function CoursesPage() {
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
   const [viewMode] = useState<'list' | 'map'>('map');
-  const [listSort, setListSort] = useState<CourseListSort>('LATEST');
+  const [listSort, setListSort] = useState<CourseListSort>('NEAREST');
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [panelHeight, setPanelHeight] = useState<number>(INITIAL_PANEL_HEIGHT);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
-  const [isNearbyCourseMarkerVisible, setIsNearbyCourseMarkerVisible] = useState(false);
-  const [isMarkerButtonVisible, setIsMarkerButtonVisible] = useState(true);
+  const [headingMode, setHeadingMode] = useState<HeadingMode>('off');
+  const [isNearbyCourseMarkerVisible, setIsNearbyCourseMarkerVisible] = useState(true);
+  const [isMarkerButtonVisible, setIsMarkerButtonVisible] = useState(false);
   const [nearbySearch, setNearbySearch] = useState<{ lat: number; lng: number; radiusKm: number }>({
     lat: DEFAULT_CENTER.lat,
     lng: DEFAULT_CENTER.lng,
     radiusKm: 5,
   });
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isOnboardingHintVisible, setIsOnboardingHintVisible] = useState(false);
+  const [selectionSource, setSelectionSource] = useState<'marker' | 'list' | 'recommended' | null>(null);
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const onboardingSteps = isEnglish ? ONBOARDING_STEPS_EN : ONBOARDING_STEPS_KO;
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -198,11 +202,11 @@ export default function CoursesPage() {
   const markerReshowOnMoveRef = useRef(false);
   const markerReshowStartViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
   const headingModeRef = useRef<HeadingMode>('off');
-  const headingConeMarkerRef = useRef<MapMarkerLike | null>(null);
-  const headingConeElementRef = useRef<HTMLElement | null>(null);
+  const headingIndicatorElementRef = useRef<HTMLElement | null>(null);
   const headingListenerAttachedRef = useRef(false);
   const headingListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
   const currentHeadingRef = useRef<number>(0);
+  const hasTrackedExploreViewedRef = useRef(false);
 
   const normalizeHeading = (heading: number) => {
     const normalized = heading % 360;
@@ -220,109 +224,37 @@ export default function CoursesPage() {
     return null;
   };
 
-  const createHeadingConeElement = () => {
-    const wrapper = document.createElement('div');
-    wrapper.style.position = 'relative';
-    wrapper.style.width = '24px';
-    wrapper.style.height = '24px';
-    wrapper.style.pointerEvents = 'none';
-
-    const coneGroup = document.createElement('span');
-    coneGroup.style.position = 'absolute';
-    coneGroup.style.left = '50%';
-    coneGroup.style.top = '50%';
-    coneGroup.style.width = '14px';
-    coneGroup.style.height = '14px';
-    coneGroup.style.transform = 'translate(-50%, -50%) rotate(0deg)';
-    coneGroup.style.transformOrigin = '50% 50%';
-
-    const coneHead = document.createElement('span');
-    coneHead.style.position = 'absolute';
-    coneHead.style.left = '50%';
-    coneHead.style.top = '0';
-    coneHead.style.width = '0';
-    coneHead.style.height = '0';
-    coneHead.style.borderLeft = '5px solid transparent';
-    coneHead.style.borderRight = '5px solid transparent';
-    coneHead.style.borderBottom = '8px solid rgba(14, 165, 233, 0.96)';
-    coneHead.style.transform = 'translateX(-50%)';
-
-    const coneTail = document.createElement('span');
-    coneTail.style.position = 'absolute';
-    coneTail.style.left = '50%';
-    coneTail.style.top = '6px';
-    coneTail.style.width = '2px';
-    coneTail.style.height = '6px';
-    coneTail.style.background = 'rgba(14, 165, 233, 0.9)';
-    coneTail.style.borderRadius = '9999px';
-    coneTail.style.transform = 'translateX(-50%)';
-    coneTail.style.boxShadow = '0 3px 6px rgba(2,132,199,0.35)';
-
-    coneGroup.appendChild(coneHead);
-    coneGroup.appendChild(coneTail);
-
-    wrapper.appendChild(coneGroup);
-    headingConeElementRef.current = coneGroup;
-    return wrapper;
-  };
-
   const updateHeadingVisual = (heading: number) => {
     const mapInstance = mapRef.current;
     if (!mapInstance) return;
 
-    const currentMarkerPosition = userMarkerRef.current?.getPosition?.();
-    if (currentMarkerPosition && headingConeMarkerRef.current) {
-      headingConeMarkerRef.current.setPosition(currentMarkerPosition);
-    }
-
     currentHeadingRef.current = heading;
-    if (headingConeElementRef.current) {
-      headingConeElementRef.current.style.transform = `translateX(-50%) rotate(${heading}deg)`;
-    }
-    if (headingModeRef.current === 'rotate') {
-      mapInstance.setBearing?.(heading);
+    if (headingIndicatorElementRef.current) {
+      headingIndicatorElementRef.current.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
     }
   };
 
   const applyHeadingMode = (mode: HeadingMode) => {
     const mapInstance = mapRef.current;
-    const sdk = mapSdkRef.current;
-    if (!mapInstance || !sdk) return;
+    if (!mapInstance) return;
 
     headingModeRef.current = mode;
+    setHeadingMode(mode);
 
-    if (mode === 'off') {
-      headingConeMarkerRef.current?.setMap(null);
-      headingConeMarkerRef.current = null;
-      headingConeElementRef.current = null;
+    if (mode === 'off' || mode === 'follow') {
+      if (headingIndicatorElementRef.current) {
+        headingIndicatorElementRef.current.style.opacity = '1';
+      }
       mapInstance.setBearing?.(0);
+      updateHeadingVisual(currentHeadingRef.current);
       return;
     }
 
-    if (!userLocation) return;
-
-    const markerPosition = userMarkerRef.current?.getPosition?.()
-      ?? (userLocation ? toLatLng(userLocation.lat, userLocation.lng) : null);
-    if (!markerPosition) return;
-
-    if (!headingConeMarkerRef.current) {
-      headingConeMarkerRef.current = new sdk.Marker({
-        map: mapInstance,
-        position: markerPosition,
-        icon: {
-          content: createHeadingConeElement(),
-          size: new sdk.Size(24, 24),
-          anchor: new sdk.Point(12, 12),
-        },
-      });
-    } else {
-      headingConeMarkerRef.current.setMap(mapInstance);
-      headingConeMarkerRef.current.setPosition(markerPosition);
+    if (headingIndicatorElementRef.current) {
+      headingIndicatorElementRef.current.style.opacity = '1';
     }
 
-    if (mode === 'cone') {
-      mapInstance.setBearing?.(0);
-    }
+    mapInstance.setBearing?.(0);
 
     updateHeadingVisual(currentHeadingRef.current);
   };
@@ -459,6 +391,43 @@ export default function CoursesPage() {
       .sort((a, b) => a.order - b.order)
       .map((point) => ({ lat: point.lat, lng: point.lng }));
   }, [selectedCourse, selectedCourseId]);
+
+  const starterCourse = useMemo(() => {
+    const items = courses?.courses ?? [];
+    if (!items.length) return null;
+
+    const easyCourse = items
+      .filter((course) => course.difficulty === 'EASY')
+      .sort((a, b) => a.totalDistance - b.totalDistance)[0];
+
+    if (easyCourse) return easyCourse;
+
+    return [...items].sort((a, b) => a.totalDistance - b.totalDistance)[0] ?? null;
+  }, [courses?.courses]);
+
+  useEffect(() => {
+    if (hasTrackedExploreViewedRef.current) return;
+    if (isLoading || isError) return;
+
+    trackEvent('explore_viewed', {
+      is_authed: sessionStatus === 'authenticated',
+      sort_by: listSort,
+      has_user_location: Boolean(userLocation),
+      course_count: courses?.courses.length ?? 0,
+    });
+    hasTrackedExploreViewedRef.current = true;
+  }, [courses?.courses.length, isError, isLoading, listSort, sessionStatus, userLocation]);
+
+  useEffect(() => {
+    if (!selectedCourseId || !selectedCourse) return;
+
+    trackEvent('course_selected', {
+      course_id: selectedCourseId,
+      source: selectionSource ?? 'list',
+      sort_by: listSort,
+      distance_km: Number(selectedCourse.totalDistance.toFixed(1)),
+    });
+  }, [listSort, selectedCourse, selectedCourseId, selectionSource]);
 
   const snapPanelHeight = (height: number) => {
     const { min, mid, max } = getPanelSnapHeights();
@@ -658,14 +627,31 @@ export default function CoursesPage() {
 
     const params = new URLSearchParams(window.location.search);
     const focusCourseId = params.get('focusCourseId');
-    if (!focusCourseId) return;
+    const sortParam = params.get('sort');
+    const showMarkersParam = params.get('showMarkers');
 
-    queueMicrotask(() => {
+    if (sortParam) {
+      setListSort(parseCourseListSort(sortParam));
+      params.delete('sort');
+    }
+
+    if (showMarkersParam === '1') {
       setIsNearbyCourseMarkerVisible(true);
-      setSelectedCourseId(focusCourseId);
-    });
+      setIsMarkerButtonVisible(false);
+      params.delete('showMarkers');
+    }
 
-    params.delete('focusCourseId');
+    if (focusCourseId) {
+      queueMicrotask(() => {
+        setIsNearbyCourseMarkerVisible(true);
+        setSelectedCourseId(focusCourseId);
+      });
+      params.delete('focusCourseId');
+    }
+
+    const hasKnownParams = Boolean(sortParam) || showMarkersParam === '1' || Boolean(focusCourseId);
+    if (!hasKnownParams) return;
+
     const queryString = params.toString();
     const nextUrl = queryString
       ? `${window.location.pathname}?${queryString}${window.location.hash}`
@@ -674,7 +660,7 @@ export default function CoursesPage() {
   }, []);
 
   useEffect(() => {
-    if (viewMode !== 'map' || listSort !== 'NEAREST' || userLocation) return;
+    if (viewMode !== 'map' || userLocation) return;
 
     if (!navigator.geolocation) {
       queueMicrotask(() => {
@@ -710,7 +696,7 @@ export default function CoursesPage() {
         maximumAge: 0,
       }
     );
-  }, [isEnglish, listSort, userLocation, viewMode]);
+  }, [isEnglish, userLocation, viewMode]);
 
   const toLatLng = (lat: number, lng: number) => {
     const sdk = mapSdkRef.current;
@@ -721,7 +707,9 @@ export default function CoursesPage() {
   };
 
   const clearCourseMarkers = () => {
-    courseMarkersRef.current.forEach((marker) => marker.setMap(null));
+    courseMarkersRef.current.forEach((marker) => {
+      marker.setMap(null);
+    });
     courseMarkersRef.current = [];
   };
 
@@ -737,6 +725,8 @@ export default function CoursesPage() {
 
     let isMounted = true;
     let dragListener: object | null = null;
+    let dragEndListener: object | null = null;
+    let zoomListener: object | null = null;
     let idleListener: object | null = null;
 
     void loadMapSdk()
@@ -761,12 +751,14 @@ export default function CoursesPage() {
 
         if (initialUserLocation) {
           const markerImage = profileSummary?.user.image ?? null;
+          const markerContent = createCurrentLocationMarkerElement(markerImage, { size: 36 });
+          headingIndicatorElementRef.current = markerContent.querySelector('[data-role="heading-indicator"]') as HTMLElement | null;
           userMarkerRef.current?.setMap(null);
           userMarkerRef.current = new sdk.Marker({
             map: mapInstance,
             position: new sdk.LatLng(initialUserLocation.lat, initialUserLocation.lng),
             icon: {
-              content: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
+              content: markerContent,
               size: new sdk.Size(36, 36),
               anchor: new sdk.Point(18, 18),
             },
@@ -777,6 +769,30 @@ export default function CoursesPage() {
         const handleMapDragStart = () => {
           if (panelDragStateRef.current) return;
           collapsePanelToMin();
+          if (markerReshowOnMoveRef.current) {
+            setIsMarkerButtonVisible(true);
+            markerReshowOnMoveRef.current = false;
+            markerReshowStartViewportRef.current = null;
+          }
+          if (headingModeRef.current !== 'off') {
+            headingModeRef.current = 'off';
+            setHeadingMode('off');
+          }
+        };
+
+        const handleMapDragEnd = () => {
+          mapInstance.setBearing?.(0);
+        };
+
+        const handleMapZoomChanged = () => {
+          if (markerReshowOnMoveRef.current) {
+            setIsMarkerButtonVisible(true);
+            markerReshowOnMoveRef.current = false;
+            markerReshowStartViewportRef.current = null;
+          }
+          if (headingModeRef.current !== 'off') {
+            applyHeadingMode('off');
+          }
         };
 
         const handleMapIdle = () => {
@@ -806,6 +822,8 @@ export default function CoursesPage() {
         };
 
         dragListener = sdk.Event.addListener(mapInstance, 'dragstart', handleMapDragStart);
+        dragEndListener = sdk.Event.addListener(mapInstance, 'dragend', handleMapDragEnd);
+        zoomListener = sdk.Event.addListener(mapInstance, 'zoom_changed', handleMapZoomChanged);
         idleListener = sdk.Event.addListener(mapInstance, 'idle', handleMapIdle);
         handleMapIdle();
       })
@@ -818,6 +836,12 @@ export default function CoursesPage() {
       if (mapSdkRef.current && dragListener) {
         mapSdkRef.current.Event.removeListener(dragListener);
       }
+      if (mapSdkRef.current && dragEndListener) {
+        mapSdkRef.current.Event.removeListener(dragEndListener);
+      }
+      if (mapSdkRef.current && zoomListener) {
+        mapSdkRef.current.Event.removeListener(zoomListener);
+      }
       if (mapSdkRef.current && idleListener) {
         mapSdkRef.current.Event.removeListener(idleListener);
       }
@@ -826,10 +850,9 @@ export default function CoursesPage() {
       }
       headingListenerAttachedRef.current = false;
       headingListenerRef.current = null;
-      headingConeMarkerRef.current?.setMap(null);
-      headingConeMarkerRef.current = null;
-      headingConeElementRef.current = null;
+      headingIndicatorElementRef.current = null;
       headingModeRef.current = 'off';
+      setHeadingMode('off');
       clearCourseMarkers();
       clearSelectedPath();
       markerReshowOnMoveRef.current = false;
@@ -850,40 +873,25 @@ export default function CoursesPage() {
     mapRef.current.setZoom(14);
 
     if (!userMarkerRef.current || userMarkerImageRef.current !== markerImage) {
+      const markerContent = createCurrentLocationMarkerElement(markerImage, { size: 36 });
+      headingIndicatorElementRef.current = markerContent.querySelector('[data-role="heading-indicator"]') as HTMLElement | null;
       userMarkerRef.current?.setMap(null);
       userMarkerRef.current = new mapSdkRef.current.Marker({
         map: mapRef.current,
         position: center,
         icon: {
-          content: createCurrentLocationMarkerElement(markerImage, { size: 36 }),
+          content: markerContent,
           size: new mapSdkRef.current.Size(36, 36),
           anchor: new mapSdkRef.current.Point(18, 18),
         },
       });
       userMarkerImageRef.current = markerImage;
+      applyHeadingMode(headingModeRef.current);
       return;
     }
 
     userMarkerRef.current.setPosition(center);
   }, [profileSummary?.user.image, userLocation, viewMode]);
-
-  useEffect(() => {
-    if (!userLocation || !headingConeMarkerRef.current) return;
-    headingConeMarkerRef.current.setPosition(toLatLng(userLocation.lat, userLocation.lng));
-  }, [userLocation]);
-
-  useEffect(() => {
-    if (!userLocation || !mapRef.current || !mapSdkRef.current) return;
-    if (headingModeRef.current !== 'off') return;
-
-    void (async () => {
-      const orientationReady = await ensureOrientationListener();
-      if (!orientationReady) return;
-      if (headingModeRef.current === 'off') {
-        applyHeadingMode('cone');
-      }
-    })();
-  }, [userLocation]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
@@ -935,6 +943,7 @@ export default function CoursesPage() {
       markerButton.textContent = '🏃';
       markerButton.title = course.title;
       markerButton.onclick = () => {
+        setSelectionSource('marker');
         setSelectedCourseId((current) => (current === course.id ? null : course.id));
       };
 
@@ -1019,6 +1028,21 @@ export default function CoursesPage() {
   const panelTransitionClass = isPanelDragging ? '' : 'transition-[height] duration-200 ease-out';
   const locationButtonTransitionClass = isPanelDragging ? '' : LOCATION_FAB_TRANSITION_CLASS;
   const locationButtonBottom = panelHeight + (selectedCourse ? 72 : 12);
+  const canRenderMapPanelAd = !isLoading
+    && !isError
+    && !isPanelDragging
+    && !isOnboardingOpen
+    && (courses?.courses.length ?? 0) >= 6;
+  const locationButtonModeClass = headingMode === 'off'
+    ? '!border-white/80 !bg-white/95 !text-slate-700'
+    : headingMode === 'follow'
+      ? '!border-sky-300 !bg-sky-600 !text-white shadow-[0_10px_20px_-14px_rgba(2,132,199,0.85)]'
+      : '!border-emerald-300 !bg-emerald-600 !text-white shadow-[0_10px_20px_-14px_rgba(5,150,105,0.88)] ring-2 ring-emerald-200/80';
+  const locationButtonAriaLabel = headingMode === 'off'
+    ? (isEnglish ? 'Move to current location (tracking off)' : '내 현재 위치로 이동 (추적 꺼짐)')
+    : headingMode === 'follow'
+      ? (isEnglish ? 'Move to current location (tracking on)' : '내 현재 위치로 이동 (추적 켜짐)')
+      : (isEnglish ? 'Move to current location (tracking + heading fan on)' : '내 현재 위치로 이동 (추적 + 방향 부채꼴 켜짐)');
 
   const getDistanceLabel = (courseLat: number, courseLng: number) => {
     if (locationError) return isEnglish ? 'Need location permission' : '위치 권한 필요';
@@ -1036,7 +1060,7 @@ export default function CoursesPage() {
     const mapInstance = mapRef.current;
     if (!mapInstance) return;
 
-    const moveMap = async (lat: number, lng: number) => {
+    const moveMap = (lat: number, lng: number) => {
       setLocationError(null);
       const nextLocation = { lat, lng };
       setUserLocation(nextLocation);
@@ -1044,30 +1068,33 @@ export default function CoursesPage() {
       mapInstance.setCenter(toLatLng(lat, lng));
       mapInstance.setZoom(14);
       collapsePanelToMin();
-
-      const orientationReady = await ensureOrientationListener();
-      if (!orientationReady) {
-        toast.error(isEnglish
-          ? 'Direction sensor is unavailable on this device.'
-          : '이 기기에서는 방향 센서를 사용할 수 없습니다');
-        return;
-      }
-
-      if (headingModeRef.current === 'rotate') {
-        applyHeadingMode('cone');
-        return;
-      }
-
-      if (headingModeRef.current === 'cone') {
-        applyHeadingMode('rotate');
-        return;
-      }
-
-      applyHeadingMode('cone');
     };
 
+    const moveAndApplyNextMode = async (lat: number, lng: number, mode: HeadingMode) => {
+      moveMap(lat, lng);
+
+      if (mode === 'fan') {
+        const orientationReady = await ensureOrientationListener();
+        if (!orientationReady) {
+          toast.error(isEnglish
+            ? 'Direction sensor is unavailable on this device.'
+            : '이 기기에서는 방향 센서를 사용할 수 없습니다');
+          applyHeadingMode('follow');
+          return;
+        }
+      }
+
+      applyHeadingMode(mode);
+    };
+
+    const nextMode: HeadingMode = headingModeRef.current === 'off'
+      ? 'follow'
+      : headingModeRef.current === 'follow'
+        ? 'fan'
+        : 'follow';
+
     if (userLocation) {
-      void moveMap(userLocation.lat, userLocation.lng);
+      void moveAndApplyNextMode(userLocation.lat, userLocation.lng, nextMode);
       return;
     }
 
@@ -1078,7 +1105,7 @@ export default function CoursesPage() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        void moveMap(position.coords.latitude, position.coords.longitude);
+        void moveAndApplyNextMode(position.coords.latitude, position.coords.longitude, nextMode);
       },
       () => {
         setLocationError(isEnglish ? 'Unable to get current location. Showing default location.' : '현재 위치를 가져올 수 없어 기본 위치를 표시합니다');
@@ -1093,6 +1120,7 @@ export default function CoursesPage() {
 
   const closeOnboarding = () => {
     setIsOnboardingOpen(false);
+    setIsOnboardingHintVisible(false);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
     }
@@ -1112,7 +1140,7 @@ export default function CoursesPage() {
     if (hasSeenOnboarding) return;
     queueMicrotask(() => {
       setOnboardingStepIndex(0);
-      setIsOnboardingOpen(true);
+      setIsOnboardingHintVisible(true);
     });
   }, []);
 
@@ -1192,8 +1220,8 @@ export default function CoursesPage() {
 
             <button
               type="button"
-              aria-label={isEnglish ? 'Move to current location' : '내 현재 위치로 이동'}
-              className={`${LOCATION_FAB_BASE_CLASS} ${locationButtonTransitionClass}`}
+              aria-label={locationButtonAriaLabel}
+              className={`${LOCATION_FAB_BASE_CLASS} ${locationButtonModeClass} ${locationButtonTransitionClass}`}
               style={{ bottom: getLocationFabBottom(locationButtonBottom) }}
               onClick={moveToCurrentLocation}
             >
@@ -1213,6 +1241,38 @@ export default function CoursesPage() {
                 {isEnglish ? 'Show Here Markers' : '현지도에서 마커보기'}
               </Button>
             </div>
+            ) : null}
+
+            {isOnboardingHintVisible ? (
+              <div className="fixed left-3 right-3 z-[86] top-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] rounded-2xl border border-sky-100 bg-white/95 px-3 py-2 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.5)]">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-slate-700">
+                    {isEnglish
+                      ? 'Tap a nearby course, then start your first run.'
+                      : '가까운 코스를 눌러 첫 러닝을 바로 시작해보세요.'}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-full px-2 text-[11px]"
+                      onClick={() => setIsOnboardingOpen(true)}
+                    >
+                      {isEnglish ? 'Guide' : '가이드'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 rounded-full px-2 text-[11px] text-slate-500"
+                      onClick={closeOnboarding}
+                    >
+                      {isEnglish ? 'Close' : '닫기'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             ) : null}
 
             {selectedCourse && (
@@ -1235,8 +1295,13 @@ export default function CoursesPage() {
                   size="lg"
                   className="rg-touch w-full h-12 rounded-2xl"
                   onClick={() => {
+                    trackEvent('run_start_clicked', {
+                      course_id: selectedCourse.id,
+                      source: 'home_map',
+                      is_authed: sessionStatus === 'authenticated',
+                    });
                     if (sessionStatus !== 'authenticated') {
-                      router.push('/login');
+                      router.push(`/login?callbackUrl=${encodeURIComponent(`/run?courseId=${selectedCourse.id}`)}`);
                       return;
                     }
                     router.push(`/run?courseId=${selectedCourse.id}`);
@@ -1273,6 +1338,26 @@ export default function CoursesPage() {
                 }}
               >
                 <div className="mb-3 space-y-2">
+                  {starterCourse ? (
+                    <button
+                      type="button"
+                      className="w-full rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-left"
+                      onClick={() => {
+                        setIsNearbyCourseMarkerVisible(true);
+                        setSelectionSource('recommended');
+                        setSelectedCourseId(starterCourse.id);
+                        setPanelHeight(getPanelSnapHeights().mid);
+                      }}
+                    >
+                      <p className="text-[11px] font-semibold text-emerald-700">
+                        {isEnglish ? 'Recommended first collect' : '첫 수집 추천 코스'}
+                      </p>
+                      <p className="mt-1 truncate text-xs font-medium text-slate-900">{starterCourse.title}</p>
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        {starterCourse.totalDistance.toFixed(1)}km · {difficultyLabel(starterCourse.difficulty)}
+                      </p>
+                    </button>
+                  ) : null}
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{isEnglish ? 'Course List' : '코스 목록'}</p>
@@ -1290,7 +1375,9 @@ export default function CoursesPage() {
                     <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
                     <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
                   </select>
-                  <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+                  {canRenderMapPanelAd ? (
+                    <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+                  ) : null}
                 </div>
 
                 {locationError && listSort === 'NEAREST' && (
@@ -1338,6 +1425,7 @@ export default function CoursesPage() {
                           className="w-full text-left"
                           onClick={() => {
                             setIsNearbyCourseMarkerVisible(true);
+                            setSelectionSource('list');
                             setSelectedCourseId((current) => (current === course.id ? null : course.id));
                           }}
                         >
@@ -1383,8 +1471,8 @@ export default function CoursesPage() {
                             </CardContent>
                           </Card>
                         </button>
-                        {index === 5 ? (
-                      <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+                        {index === 5 && canRenderMapPanelAd ? (
+                          <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
                         ) : null}
                       </div>
                     ))}

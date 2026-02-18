@@ -205,6 +205,10 @@ export default function CollectionPage() {
   })();
 
   const selectedCourses = sortedCourses.filter((course) => selectedCourseIds.includes(course.id));
+  const canRenderCollectionAd = sortedCourses.length >= 3
+    && !isRoutePreviewOpen
+    && !historyTarget
+    && !deleteTarget;
 
   useEffect(() => {
     if (!isRoutePreviewOpen || !previewMapContainerRef.current) {
@@ -408,7 +412,9 @@ export default function CollectionPage() {
               </Button>
             </div>
 
-            <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+            {canRenderCollectionAd ? (
+              <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+            ) : null}
 
             {selectedCourseIds.length > 0 && (
               <div className="flex flex-col gap-2 rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">

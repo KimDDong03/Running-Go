@@ -63,6 +63,13 @@ export default function RankingsPage() {
     return getCoursePreviewImageUrl(samplePath(points), center, { width: 240, height: 160 });
   };
 
+  const activeRankingCount = activeTab === 'popular'
+    ? (data?.popularCourses.length ?? 0)
+    : activeTab === 'collector'
+      ? (data?.collectorRankings.length ?? 0)
+      : (data?.creatorRankings.length ?? 0);
+  const canRenderRankingsAd = !isError && !selectedCreator && activeRankingCount >= 5;
+
   return (
     <div className="rg-page">
       <main className="rg-page-main p-4 pt-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] space-y-4">
@@ -94,7 +101,9 @@ export default function RankingsPage() {
           ))}
         </div>
 
-        <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+        {canRenderRankingsAd ? (
+          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+        ) : null}
 
         {isError && (
           <ErrorState

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { AdSlot } from '@/app/components/ads/AdSlot';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
+import { trackEvent } from '@/lib/analytics';
 
 function RunResultPageContent() {
   const params = useSearchParams();
@@ -34,12 +35,25 @@ function RunResultPageContent() {
   };
 
   const numericMatchRate = Number(matchRate ?? runSession?.matchRate ?? 0);
+  const canRenderRunResultAd = Boolean(runSession) && !isError;
 
   const trainingFocus = numericMatchRate < 80
     ? (isEnglish ? 'Route tracking accuracy run' : '코스 추적 정확도 개선 러닝')
     : (runSession?.pace ?? 0) <= 5.5
       ? (isEnglish ? 'Pace maintenance intervals' : '페이스 유지 인터벌')
       : (isEnglish ? 'Endurance long run' : '지구력 강화 롱런');
+
+  useEffect(() => {
+    if (!runSessionId && !courseId) return;
+
+    trackEvent('run_result_viewed', {
+      run_session_id: runSessionId ?? 'none',
+      course_id: courseId ?? 'none',
+      is_collected: isCollected,
+      match_rate: Number(matchRate ?? runSession?.matchRate ?? 0),
+      has_error: isError,
+    });
+  }, [courseId, isCollected, isError, matchRate, runSession?.matchRate, runSessionId]);
 
   return (
     <div className="rg-page flex items-center justify-center p-4">
@@ -84,13 +98,21 @@ function RunResultPageContent() {
               <Button size="lg" className="w-full rounded-2xl">{isEnglish ? 'Sign in' : '로그인'}</Button>
             </Link>
           )}
-          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+          {canRenderRunResultAd ? (
+            <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+          ) : null}
           <div className="flex flex-col gap-2">
             {isCollected && (
                 <Button
                   size="lg"
                   className="rg-touch w-full rounded-2xl"
-                  onClick={() => router.replace('/collection')}
+                  onClick={() => {
+                    trackEvent('collection_opened_from_result', {
+                      run_session_id: runSessionId ?? 'none',
+                      course_id: courseId ?? 'none',
+                    });
+                    router.replace('/collection');
+                  }}
                 >
                 {isEnglish ? 'Open Collection' : '내 도감 보기'}
               </Button>
@@ -104,6 +126,13 @@ function RunResultPageContent() {
                 >
                 {isEnglish ? 'Run Again' : '다시 달리기'}
               </Button>
+            )}
+            {!isCollected && (
+              <Link href="/?sort=NEAREST&showMarkers=1">
+                <Button size="lg" variant="outline" className="rg-touch w-full rounded-2xl border-emerald-200 text-emerald-700">
+                  {isEnglish ? 'Find Easier Nearby Course' : '가까운 쉬운 코스 찾기'}
+                </Button>
+              </Link>
             )}
             <Link href="/">
               <Button size="lg" variant="outline" className="rg-touch w-full rounded-2xl">{isEnglish ? 'Home' : '홈으로'}</Button>

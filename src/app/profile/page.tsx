@@ -69,6 +69,14 @@ export default function ProfilePage() {
   const creatorNextRemaining = creatorTier.nextThreshold
     ? Math.max(0, creatorTier.nextThreshold - (data?.stats.createdCourses ?? 0))
     : 0;
+  const hasMeaningfulProfileContent = Boolean(data) && (
+    (data?.createdCoursePreview?.length ?? 0) > 0
+    || (data?.stats.runCount ?? 0) > 0
+    || (data?.stats.totalDistance ?? 0) > 0
+    || (data?.stats.createdCourses ?? 0) > 0
+    || (data?.stats.collectedCourses ?? 0) > 0
+  );
+  const canRenderProfileAd = !isLoading && !isError && !isDeleteDialogOpen && hasMeaningfulProfileContent;
 
   useEffect(() => {
     setNicknameDraft(data?.user.name ?? '');
@@ -400,9 +408,9 @@ export default function ProfilePage() {
           </Card>
         )}
 
-        {!isError && (
-            <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
-        )}
+        {canRenderProfileAd ? (
+          <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+        ) : null}
 
         {!isError && (
           <Card className="rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
