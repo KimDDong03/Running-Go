@@ -1,6 +1,6 @@
 'use client';
 
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -169,6 +169,7 @@ export default function CoursesPage() {
   const [viewMode] = useState<'list' | 'map'>('map');
   const [listSort, setListSort] = useState<CourseListSort>('NEAREST');
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const userLocationRef = useRef(userLocation);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [panelHeight, setPanelHeight] = useState<number>(INITIAL_PANEL_HEIGHT);
@@ -187,6 +188,9 @@ export default function CoursesPage() {
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const onboardingSteps = isEnglish ? ONBOARDING_STEPS_EN : ONBOARDING_STEPS_KO;
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    userLocationRef.current = userLocation;
+  }, [userLocation]);
   const panelSectionRef = useRef<HTMLElement>(null);
   const panelContentRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
@@ -207,6 +211,7 @@ export default function CoursesPage() {
   const headingListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
   const currentHeadingRef = useRef<number>(0);
   const hasTrackedExploreViewedRef = useRef(false);
+  const profileImageRef = useRef<string | null>(null);
 
   const normalizeHeading = (heading: number) => {
     const normalized = heading % 360;
@@ -224,7 +229,7 @@ export default function CoursesPage() {
     return null;
   };
 
-  const updateHeadingVisual = (heading: number) => {
+  const updateHeadingVisual = useCallback((heading: number) => {
     const mapInstance = mapRef.current;
     if (!mapInstance) return;
 
@@ -232,9 +237,9 @@ export default function CoursesPage() {
     if (headingIndicatorElementRef.current) {
       headingIndicatorElementRef.current.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
     }
-  };
+  }, []);
 
-  const applyHeadingMode = (mode: HeadingMode) => {
+  const applyHeadingMode = useCallback((mode: HeadingMode) => {
     const mapInstance = mapRef.current;
     if (!mapInstance) return;
 
@@ -257,7 +262,7 @@ export default function CoursesPage() {
     mapInstance.setBearing?.(0);
 
     updateHeadingVisual(currentHeadingRef.current);
-  };
+  }, [updateHeadingVisual]);
 
   const ensureOrientationListener = async () => {
     if (typeof window === 'undefined' || headingListenerAttachedRef.current) {
@@ -362,11 +367,14 @@ export default function CoursesPage() {
     { enabled: viewMode === 'map' }
   );
 
-  const { data: selectedCourse, isLoading: isSelectedCourseLoading } = trpc.course.byId.useQuery(
+  const { data: selectedCourse } = trpc.course.byId.useQuery(
     { id: selectedCourseId ?? '' },
     { enabled: Boolean(selectedCourseId) }
   );
   const { data: profileSummary } = trpc.profile.summary.useQuery();
+  useEffect(() => {
+    profileImageRef.current = profileSummary?.user.image ?? null;
+  }, [profileSummary?.user.image]);
 
   const selectedWaypointList = useMemo(() => {
     if (!selectedCourseId) return [] as { lat: number; lng: number }[];
@@ -480,10 +488,10 @@ export default function CoursesPage() {
     snapPanelHeight(clampedHeight);
   };
 
-  const collapsePanelToMin = () => {
+  const collapsePanelToMin = useCallback(() => {
     const { min } = getPanelSnapHeights();
     setPanelHeight((prev) => (prev > min ? min : prev));
-  };
+  }, []);
 
   useEffect(() => {
     panelHeightRef.current = panelHeight;
@@ -698,27 +706,27 @@ export default function CoursesPage() {
     );
   }, [isEnglish, userLocation, viewMode]);
 
-  const toLatLng = (lat: number, lng: number) => {
+  const toLatLng = useCallback((lat: number, lng: number) => {
     const sdk = mapSdkRef.current;
     if (!sdk) {
       throw new Error(isEnglish ? 'Map SDK is not ready yet.' : '네이버 지도 SDK가 준비되지 않았습니다');
     }
     return new sdk.LatLng(lat, lng);
-  };
+  }, [isEnglish]);
 
-  const clearCourseMarkers = () => {
+  const clearCourseMarkers = useCallback(() => {
     courseMarkersRef.current.forEach((marker) => {
       marker.setMap(null);
     });
     courseMarkersRef.current = [];
-  };
+  }, []);
 
-  const clearSelectedPath = () => {
+  const clearSelectedPath = useCallback(() => {
     selectedOutlinePolylineRef.current?.setMap(null);
     selectedMainPolylineRef.current?.setMap(null);
     selectedOutlinePolylineRef.current = null;
     selectedMainPolylineRef.current = null;
-  };
+  }, []);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapContainerRef.current || mapRef.current) return;
@@ -735,9 +743,9 @@ export default function CoursesPage() {
 
         mapSdkRef.current = sdk;
         const storedLocation = readStoredLocation();
-        const initialCenter = userLocation ?? storedLocation ?? DEFAULT_CENTER;
-        const initialUserLocation = userLocation ?? storedLocation;
-        if (!userLocation && storedLocation) {
+        const initialCenter = userLocationRef.current ?? storedLocation ?? DEFAULT_CENTER;
+        const initialUserLocation = userLocationRef.current ?? storedLocation;
+        if (!userLocationRef.current && storedLocation) {
           setUserLocation(storedLocation);
         }
         const mapInstance = new sdk.Map(mapContainerRef.current, {
@@ -749,11 +757,11 @@ export default function CoursesPage() {
 
         mapRef.current = mapInstance;
 
-        if (initialUserLocation) {
-          const markerImage = profileSummary?.user.image ?? null;
-          const markerContent = createCurrentLocationMarkerElement(markerImage, { size: 36 });
-          headingIndicatorElementRef.current = markerContent.querySelector('[data-role="heading-indicator"]') as HTMLElement | null;
-          userMarkerRef.current?.setMap(null);
+          if (initialUserLocation) {
+            const markerImage = profileImageRef.current;
+            const markerContent = createCurrentLocationMarkerElement(markerImage, { size: 36 });
+            headingIndicatorElementRef.current = markerContent.querySelector('[data-role="heading-indicator"]') as HTMLElement | null;
+            userMarkerRef.current?.setMap(null);
           userMarkerRef.current = new sdk.Marker({
             map: mapInstance,
             position: new sdk.LatLng(initialUserLocation.lat, initialUserLocation.lng),
@@ -862,13 +870,13 @@ export default function CoursesPage() {
       mapRef.current?.destroy();
       mapRef.current = null;
     };
-  }, [isEnglish, viewMode]);
+  }, [applyHeadingMode, clearCourseMarkers, clearSelectedPath, collapsePanelToMin, isEnglish, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current || !userLocation) return;
 
     const center = toLatLng(userLocation.lat, userLocation.lng);
-    const markerImage = profileSummary?.user.image ?? null;
+    const markerImage = profileImageRef.current;
     mapRef.current.setCenter(center);
     mapRef.current.setZoom(14);
 
@@ -891,7 +899,7 @@ export default function CoursesPage() {
     }
 
     userMarkerRef.current.setPosition(center);
-  }, [profileSummary?.user.image, userLocation, viewMode]);
+  }, [applyHeadingMode, toLatLng, userLocation, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
@@ -959,7 +967,7 @@ export default function CoursesPage() {
 
       courseMarkersRef.current.push(marker);
     });
-  }, [courses?.courses, isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode]);
+  }, [courses?.courses, isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode, clearCourseMarkers, toLatLng]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
@@ -1003,7 +1011,7 @@ export default function CoursesPage() {
       });
     }
 
-  }, [selectedCourse, selectedCourseId, selectedWaypointList, viewMode]);
+  }, [selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
 
   const samplePath = (points: { lat: number; lng: number }[]) => {
     if (points.length <= maxPathPoints) return points;
