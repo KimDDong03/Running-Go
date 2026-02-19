@@ -300,8 +300,12 @@ export default function CoursesPage() {
   const headingModeRef = useRef<HeadingMode>('off');
   const headingIndicatorElementRef = useRef<HTMLElement | null>(null);
   const headingListenerAttachedRef = useRef(false);
-  const headingListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
+  const headingListenerRef = useRef<EventListener | null>(null);
+  const headingEventSourceRef = useRef<'absolute' | 'relative' | null>(null);
   const currentHeadingRef = useRef<number>(0);
+  const displayedHeadingRef = useRef<number>(0);
+  const pendingHeadingRef = useRef<number | null>(null);
+  const headingVisualRafRef = useRef<number | null>(null);
   const hasTrackedExploreViewedRef = useRef(false);
   const profileImageRef = useRef<string | null>(null);
   const lastListAutoFitCourseIdRef = useRef<string | null>(null);
@@ -314,12 +318,12 @@ export default function CoursesPage() {
   const panelContentPullStateRef = useRef<{ startY: number; startHeight: number; isDraggingPanel: boolean } | null>(null);
   const panelContentPointerPullStateRef = useRef<{ pointerId: number; startY: number; startHeight: number; isDraggingPanel: boolean } | null>(null);
 
-  const normalizeHeading = (heading: number) => {
+  const normalizeHeading = useCallback((heading: number) => {
     const normalized = heading % 360;
     return normalized < 0 ? normalized + 360 : normalized;
-  };
+  }, []);
 
-  const resolveHeading = (event: DeviceOrientationEvent) => {
+  const resolveHeading = useCallback((event: DeviceOrientationEvent) => {
     const iOSEvent = event as DeviceOrientationEvent & { webkitCompassHeading?: number };
     if (typeof iOSEvent.webkitCompassHeading === 'number' && Number.isFinite(iOSEvent.webkitCompassHeading)) {
       return normalizeHeading(iOSEvent.webkitCompassHeading);
@@ -328,17 +332,68 @@ export default function CoursesPage() {
       return normalizeHeading(360 - event.alpha);
     }
     return null;
-  };
+  }, [normalizeHeading]);
+
+  const getHeadingDelta = useCallback((from: number, to: number) => {
+    const raw = normalizeHeading(to) - normalizeHeading(from);
+    if (raw > 180) return raw - 360;
+    if (raw < -180) return raw + 360;
+    return raw;
+  }, [normalizeHeading]);
 
   const updateHeadingVisual = useCallback((heading: number) => {
-    const mapInstance = mapRef.current;
-    if (!mapInstance) return;
+    currentHeadingRef.current = normalizeHeading(heading);
+    pendingHeadingRef.current = currentHeadingRef.current;
 
-    currentHeadingRef.current = heading;
-    if (headingIndicatorElementRef.current) {
-      headingIndicatorElementRef.current.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
+    if (headingVisualRafRef.current !== null) return;
+
+    const animate = () => {
+      const targetHeading = pendingHeadingRef.current;
+      if (targetHeading === null) {
+        headingVisualRafRef.current = null;
+        return;
+      }
+
+      const current = displayedHeadingRef.current;
+      const delta = getHeadingDelta(current, targetHeading);
+      let next = current;
+
+      if (Math.abs(delta) < 0.8) {
+        next = normalizeHeading(targetHeading);
+        pendingHeadingRef.current = null;
+      } else {
+        next = normalizeHeading(current + delta * 0.22);
+      }
+
+      displayedHeadingRef.current = next;
+      if (headingIndicatorElementRef.current) {
+        headingIndicatorElementRef.current.style.transform = `translate(-50%, -50%) rotate(${next}deg)`;
+      }
+
+      if (pendingHeadingRef.current !== null) {
+        headingVisualRafRef.current = window.requestAnimationFrame(animate);
+        return;
+      }
+
+      headingVisualRafRef.current = null;
+    };
+
+    headingVisualRafRef.current = window.requestAnimationFrame(animate);
+  }, [getHeadingDelta, normalizeHeading]);
+
+  const resetHeadingVisual = useCallback((heading: number) => {
+    const normalized = normalizeHeading(heading);
+    currentHeadingRef.current = normalized;
+    displayedHeadingRef.current = normalized;
+    pendingHeadingRef.current = null;
+    if (headingVisualRafRef.current !== null) {
+      window.cancelAnimationFrame(headingVisualRafRef.current);
+      headingVisualRafRef.current = null;
     }
-  }, []);
+    if (headingIndicatorElementRef.current) {
+      headingIndicatorElementRef.current.style.transform = `translate(-50%, -50%) rotate(${normalized}deg)`;
+    }
+  }, [normalizeHeading]);
 
   const applyHeadingMode = useCallback((mode: HeadingMode) => {
     const mapInstance = mapRef.current;
@@ -352,7 +407,7 @@ export default function CoursesPage() {
         headingIndicatorElementRef.current.style.opacity = '1';
       }
       mapInstance.setBearing?.(0);
-      updateHeadingVisual(currentHeadingRef.current);
+      resetHeadingVisual(currentHeadingRef.current);
       return;
     }
 
@@ -362,12 +417,16 @@ export default function CoursesPage() {
 
     mapInstance.setBearing?.(0);
 
-    updateHeadingVisual(currentHeadingRef.current);
-  }, [updateHeadingVisual]);
+    resetHeadingVisual(currentHeadingRef.current);
+  }, [resetHeadingVisual]);
 
-  const ensureOrientationListener = async () => {
+  const ensureOrientationListener = useCallback(async () => {
     if (typeof window === 'undefined' || headingListenerAttachedRef.current) {
       return true;
+    }
+
+    if (!window.isSecureContext) {
+      return false;
     }
 
     if (typeof DeviceOrientationEvent === 'undefined') {
@@ -389,18 +448,31 @@ export default function CoursesPage() {
       }
     }
 
-    const onDeviceOrientation = (event: DeviceOrientationEvent) => {
-      const heading = resolveHeading(event);
+    const onDeviceOrientation: EventListener = (event) => {
+      const source = event.type === 'deviceorientationabsolute' ? 'absolute' : 'relative';
+      if (headingEventSourceRef.current && headingEventSourceRef.current !== source) {
+        if (!(headingEventSourceRef.current === 'relative' && source === 'absolute')) {
+          return;
+        }
+      }
+
+      const heading = resolveHeading(event as DeviceOrientationEvent);
       if (heading === null) return;
+
+      if (headingEventSourceRef.current !== source) {
+        headingEventSourceRef.current = source;
+      }
       updateHeadingVisual(heading);
     };
 
     headingListenerRef.current = onDeviceOrientation;
+    headingEventSourceRef.current = null;
+    window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
     window.addEventListener('deviceorientation', onDeviceOrientation, true);
     headingListenerAttachedRef.current = true;
 
     return true;
-  };
+  }, [resolveHeading, updateHeadingVisual]);
 
   const syncNearbySearchFromMap = useCallback((mapInstance: MapLike, centerOverride?: { lat: number; lng: number }) => {
     const mapCenter = mapInstance.getCenter();
@@ -503,7 +575,8 @@ export default function CoursesPage() {
     });
     userMarkerImageRef.current = markerImage;
     applyHeadingMode(headingModeRef.current);
-  }, [applyHeadingMode, profileSummary?.user.image, viewMode]);
+    void ensureOrientationListener();
+  }, [applyHeadingMode, ensureOrientationListener, profileSummary?.user.image, viewMode]);
 
   const selectedWaypointList = useMemo(() => {
     if (!selectedCourseId) return [] as { lat: number; lng: number }[];
@@ -967,6 +1040,7 @@ export default function CoursesPage() {
           });
           userMarkerImageRef.current = markerImage;
           applyHeadingMode(headingModeRef.current);
+          void ensureOrientationListener();
         }
 
         const handleMapDragStart = () => {
@@ -1048,10 +1122,17 @@ export default function CoursesPage() {
         mapSdkRef.current.Event.removeListener(idleListener);
       }
       if (typeof window !== 'undefined' && headingListenerAttachedRef.current && headingListenerRef.current) {
+        window.removeEventListener('deviceorientationabsolute', headingListenerRef.current, true);
         window.removeEventListener('deviceorientation', headingListenerRef.current, true);
       }
+      if (headingVisualRafRef.current !== null) {
+        window.cancelAnimationFrame(headingVisualRafRef.current);
+        headingVisualRafRef.current = null;
+      }
+      pendingHeadingRef.current = null;
       headingListenerAttachedRef.current = false;
       headingListenerRef.current = null;
+      headingEventSourceRef.current = null;
       headingIndicatorElementRef.current = null;
       headingModeRef.current = 'off';
       setHeadingMode('off');
@@ -1064,7 +1145,7 @@ export default function CoursesPage() {
       mapRef.current?.destroy();
       mapRef.current = null;
     };
-  }, [applyHeadingMode, clearCourseMarkers, clearSelectedPath, collapsePanelToMin, isEnglish, viewMode]);
+  }, [applyHeadingMode, clearCourseMarkers, clearSelectedPath, collapsePanelToMin, ensureOrientationListener, isEnglish, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current || !userLocation) return;
@@ -1089,11 +1170,12 @@ export default function CoursesPage() {
       });
       userMarkerImageRef.current = markerImage;
       applyHeadingMode(headingModeRef.current);
+      void ensureOrientationListener();
       return;
     }
 
     userMarkerRef.current.setPosition(center);
-  }, [applyHeadingMode, toLatLng, userLocation, viewMode]);
+  }, [applyHeadingMode, ensureOrientationListener, toLatLng, userLocation, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
@@ -1344,15 +1426,13 @@ export default function CoursesPage() {
     const moveAndApplyNextMode = async (lat: number, lng: number, mode: HeadingMode) => {
       moveMap(lat, lng);
 
-      if (mode === 'fan') {
-        const orientationReady = await ensureOrientationListener();
-        if (!orientationReady) {
-          toast.error(isEnglish
-            ? 'Direction sensor is unavailable on this device.'
-            : '이 기기에서는 방향 센서를 사용할 수 없습니다');
-          applyHeadingMode('follow');
-          return;
-        }
+      const orientationReady = await ensureOrientationListener();
+      if (!orientationReady && mode === 'fan') {
+        toast.error(isEnglish
+          ? 'Direction sensor is unavailable on this device.'
+          : '이 기기에서는 방향 센서를 사용할 수 없습니다');
+        applyHeadingMode('follow');
+        return;
       }
 
       applyHeadingMode(mode);
