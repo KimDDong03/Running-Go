@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { AdSlot } from '@/app/components/ads/AdSlot';
 import { trpc } from '@/components/providers/TRPCProvider';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { trackEvent } from '@/lib/analytics';
@@ -35,8 +34,6 @@ function RunResultPageContent() {
   };
 
   const numericMatchRate = Number(matchRate ?? runSession?.matchRate ?? 0);
-  const canRenderRunResultAd = Boolean(runSession) && !isError;
-
   const trainingFocus = numericMatchRate < 80
     ? (isEnglish ? 'Route tracking accuracy run' : '코스 추적 정확도 개선 러닝')
     : (runSession?.pace ?? 0) <= 5.5
@@ -98,9 +95,6 @@ function RunResultPageContent() {
               <Button size="lg" className="w-full rounded-2xl">{isEnglish ? 'Sign in' : '로그인'}</Button>
             </Link>
           )}
-          {canRenderRunResultAd ? (
-            <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
-          ) : null}
           <div className="flex flex-col gap-2">
             {isCollected && (
                 <Button

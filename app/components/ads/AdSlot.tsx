@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 declare global {
   interface Window {
@@ -36,12 +37,24 @@ const mapFormatToStyle = (format: AdSlotProps['format']) => {
   return { display: 'block' };
 };
 
+const AD_BLOCKED_PATHS = ['/run/result'];
+const AD_BLOCKED_PREFIXES = ['/login', '/run', '/create'];
+
+const isPathEligibleForAds = (pathname: string) => {
+  if (!pathname) return false;
+  if (AD_BLOCKED_PATHS.includes(pathname)) return false;
+  return !AD_BLOCKED_PREFIXES.some((prefix) => pathname.startsWith(prefix) && pathname !== '/');
+};
+
 export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
   const initializedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const pathname = usePathname();
+  const isPathEligible = Boolean(pathname && isPathEligibleForAds(pathname));
   const clientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
   const effectiveSlot = slotId ?? process.env.NEXT_PUBLIC_ADSENSE_SLOT_INLINE;
   const [hasConsent, setHasConsent] = useState(() => hasGrantedConsent());
+  const [hasEnoughPublisherContent, setHasEnoughPublisherContent] = useState(false);
 
   useEffect(() => {
     const syncConsent = () => {
@@ -55,10 +68,61 @@ export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
   }, []);
 
   useEffect(() => {
+    if (!isPathEligible) {
+      return;
+    }
+
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    let rafId: number | null = null;
+    const root = document.querySelector('main') ?? document.body;
+    if (!root) {
+      return;
+    }
+
+    const evaluateContent = () => {
+      const text = (root.textContent ?? '').replace(/\s+/g, ' ').trim();
+      const textLength = text.length;
+      const informativeNodeCount = root.querySelectorAll('p, li, h2, h3').length;
+      const actionableOnlyNodeCount = root.querySelectorAll('button, [role="button"]').length;
+      const hasEnoughText = textLength >= 280;
+      const hasEnoughStructure = informativeNodeCount >= 4;
+      const actionBiasSafe = actionableOnlyNodeCount <= informativeNodeCount * 3;
+      setHasEnoughPublisherContent(hasEnoughText && hasEnoughStructure && actionBiasSafe);
+    };
+
+    const scheduleEvaluate = () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        evaluateContent();
+      });
+    };
+
+    scheduleEvaluate();
+    const observer = new MutationObserver(scheduleEvaluate);
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+
+    return () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      observer.disconnect();
+    };
+  }, [isPathEligible]);
+
+  useEffect(() => {
     if (!clientId || !effectiveSlot) {
       return;
     }
     if (!hasConsent) {
+      return;
+    }
+    if (!isPathEligible || !hasEnoughPublisherContent) {
       return;
     }
     if (initializedRef.current) {
@@ -73,7 +137,7 @@ export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
     } catch {
       initializedRef.current = false;
     }
-  }, [clientId, effectiveSlot, hasConsent]);
+  }, [clientId, effectiveSlot, hasConsent, hasEnoughPublisherContent, isPathEligible]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -113,7 +177,7 @@ export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
     };
   }, []);
 
-  if (!clientId || !effectiveSlot || !hasConsent) {
+  if (!clientId || !effectiveSlot || !hasConsent || !isPathEligible || !hasEnoughPublisherContent) {
     return null;
   }
 
