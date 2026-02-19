@@ -44,14 +44,26 @@ export default function CollectionPage() {
   const isEnglish = locale === 'en';
   const { status: sessionStatus } = useSession();
   const utils = trpc.useUtils();
-  const { data, isLoading, isError, error, refetch } = trpc.collection.listByUser.useQuery();
+  const { data, isLoading, isError, error, refetch } = trpc.collection.listByUser.useQuery(
+    undefined,
+    {
+      enabled: sessionStatus !== 'unauthenticated',
+      placeholderData: (previousData) => previousData,
+    }
+  );
   const { data: createdData, isLoading: isCreatedLoading } = trpc.course.listByUser.useQuery(
     { limit: 50 },
-    { enabled: sessionStatus === 'authenticated' }
+    {
+      enabled: sessionStatus !== 'unauthenticated',
+      placeholderData: (previousData) => previousData,
+    }
   );
   const { data: likedData, isLoading: isLikedLoading } = trpc.like.listByUser.useQuery(
     undefined,
-    { enabled: sessionStatus === 'authenticated' }
+    {
+      enabled: sessionStatus !== 'unauthenticated',
+      placeholderData: (previousData) => previousData,
+    }
   );
 
   const [sort, setSort] = useState<'recent' | 'count'>('recent');
@@ -67,7 +79,7 @@ export default function CollectionPage() {
   const previewPolylinesRef = useRef<MapPolylineLike[]>([]);
   const { data: historyData, isLoading: isHistoryLoading } = trpc.collection.historyByCourse.useQuery(
     { courseId: historyTarget?.id ?? '', limit: 50 },
-    { enabled: Boolean(historyTarget?.id) }
+    { enabled: sessionStatus !== 'unauthenticated' && Boolean(historyTarget?.id) }
   );
   const difficultyLabel = (difficulty: Difficulty) => {
     if (!isEnglish) {
@@ -130,7 +142,7 @@ export default function CollectionPage() {
       count: collection.count,
       createdAt: collection.lastAt,
     }));
-  }, [data?.collections]);
+  }, [data]);
 
   const createdCourses = useMemo<RouteCourse[]>(() => {
     if (!createdData?.courses) return [];
@@ -149,7 +161,7 @@ export default function CollectionPage() {
       likeCount: (course as { likeCount?: number }).likeCount,
       status: (course as { status?: string }).status,
     }));
-  }, [createdData?.courses]);
+  }, [createdData]);
 
   const likedCourses = useMemo<RouteCourse[]>(() => {
     if (!likedData?.likes) return [];
@@ -168,7 +180,7 @@ export default function CollectionPage() {
       likeCount: liked.course.likeCount,
       count: liked.isCollected ? 1 : 0,
     }));
-  }, [likedData?.likes]);
+  }, [likedData]);
 
   const baseCourses = viewType === 'created'
     ? createdCourses
@@ -317,7 +329,18 @@ export default function CollectionPage() {
   return (
     <div className="rg-page">
       <main className="rg-page-main p-4 pt-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] space-y-4">
-        {isLoading || (sessionStatus === 'authenticated' && (isCreatedLoading || isLikedLoading)) ? (
+        {sessionStatus === 'loading' ? (
+          <div className="text-center py-20 text-slate-500">{isEnglish ? 'Loading...' : '불러오는 중...'}</div>
+        ) : sessionStatus !== 'authenticated' ? (
+          <ErrorState
+            title={isEnglish ? 'Sign-in required' : '로그인이 필요합니다'}
+            message={isEnglish ? 'Please sign in to use your collection.' : '도감 기능은 로그인 후 사용할 수 있습니다'}
+            actionLabel={isEnglish ? 'Sign in' : '로그인'}
+            onAction={() => {
+              window.location.href = '/login';
+            }}
+          />
+        ) : isLoading || isCreatedLoading || isLikedLoading ? (
           <div className="text-center py-20 text-slate-500">{isEnglish ? 'Loading...' : '불러오는 중...'}</div>
         ) : isError ? (
           error?.data?.code === 'UNAUTHORIZED' ? (

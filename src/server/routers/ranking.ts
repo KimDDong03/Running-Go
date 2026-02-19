@@ -28,6 +28,30 @@ const buildPeriodFilter = (startAt: Date | null, endAt: Date) => {
   };
 };
 
+const sampleWaypoints = (value: unknown, maxPoints: number = 80) => {
+  if (!Array.isArray(value)) return [];
+  const points = value
+    .map((point) => {
+      if (!point || typeof point !== 'object') return null;
+      const lat = (point as { lat?: unknown }).lat;
+      const lng = (point as { lng?: unknown }).lng;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+      return { lat, lng };
+    })
+    .filter((point): point is { lat: number; lng: number } => Boolean(point));
+
+  if (points.length <= maxPoints) return points;
+  const step = Math.ceil(points.length / maxPoints);
+  const sampled: { lat: number; lng: number }[] = [];
+  for (let i = 0; i < points.length; i += step) {
+    sampled.push(points[i]);
+  }
+  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+    sampled.push(points[points.length - 1]);
+  }
+  return sampled;
+};
+
 export const rankingRouter = createTRPCRouter({
   list: publicProcedure
     .input(z.object({ period: PeriodSchema }).optional())
@@ -36,29 +60,65 @@ export const rankingRouter = createTRPCRouter({
       const { startAt, endAt } = getPeriodRange(period);
       const periodDateFilter = buildPeriodFilter(startAt, endAt);
 
-      const popularCourses = await prisma.course.findMany({
-        where: { isPublic: true, status: 'ACTIVE' },
-        orderBy: {
-          likes: { _count: 'desc' },
-        },
-        take: 20,
-        include: {
-          _count: { select: { likes: true } },
-          creator: { select: { name: true } },
-        },
-      });
-
-      const collectorGrouped = await prisma.collection.groupBy({
-        by: ['userId'],
-        _count: { id: true },
-        where: periodDateFilter ? { firstAt: periodDateFilter } : undefined,
-        orderBy: {
-          _count: {
-            id: 'desc',
+      const [popularCourses, collectorGrouped, creatorGrouped, courseRunGrouped] = await Promise.all([
+        prisma.course.findMany({
+          where: { isPublic: true, status: 'ACTIVE' },
+          orderBy: {
+            likes: { _count: 'desc' },
           },
-        },
-        take: 20,
-      });
+          take: 20,
+          include: {
+            _count: { select: { likes: true } },
+            creator: { select: { name: true } },
+          },
+        }),
+        prisma.collection.groupBy({
+          by: ['userId'],
+          _count: { id: true },
+          where: periodDateFilter ? { firstAt: periodDateFilter } : undefined,
+          orderBy: {
+            _count: {
+              id: 'desc',
+            },
+          },
+          take: 20,
+        }),
+        prisma.course.groupBy({
+          by: ['creatorId'],
+          _count: { id: true },
+          where: {
+            status: 'ACTIVE',
+            ...(periodDateFilter ? { createdAt: periodDateFilter } : {}),
+          },
+          orderBy: {
+            _count: {
+              id: 'desc',
+            },
+          },
+          take: 20,
+        }),
+        prisma.runSession.groupBy({
+          by: ['courseId'],
+          _count: { id: true },
+          where: {
+            courseId: { not: null },
+            ...(startAt
+              ? {
+                  createdAt: {
+                    gte: startAt,
+                    lte: endAt,
+                  },
+                }
+              : {}),
+          },
+          orderBy: {
+            _count: {
+              id: 'desc',
+            },
+          },
+          take: 20,
+        }),
+      ]);
 
       const collectorRankSource = (collectorGrouped.length === 0 && period !== 'ALL_TIME')
         ? await prisma.collection.groupBy({
@@ -81,21 +141,6 @@ export const rankingRouter = createTRPCRouter({
           })
         : [];
       const collectorUserMap = new Map(collectorUsers.map((user) => [user.id, user.name]));
-
-      const creatorGrouped = await prisma.course.groupBy({
-        by: ['creatorId'],
-        _count: { id: true },
-        where: {
-          status: 'ACTIVE',
-          ...(periodDateFilter ? { createdAt: periodDateFilter } : {}),
-        },
-        orderBy: {
-          _count: {
-            id: 'desc',
-          },
-        },
-        take: 20,
-      });
 
       const creatorRankingsRaw = (creatorGrouped.length === 0 && period !== 'ALL_TIME')
         ? await prisma.course.groupBy({
@@ -120,28 +165,6 @@ export const rankingRouter = createTRPCRouter({
           })
         : [];
       const creatorUserMap = new Map(creatorUsers.map((user) => [user.id, user.name]));
-
-      const courseRunGrouped = await prisma.runSession.groupBy({
-        by: ['courseId'],
-        _count: { id: true },
-        where: {
-          courseId: { not: null },
-          ...(startAt
-            ? {
-                createdAt: {
-                  gte: startAt,
-                  lte: endAt,
-                },
-              }
-            : {}),
-        },
-        orderBy: {
-          _count: {
-            id: 'desc',
-          },
-        },
-        take: 20,
-      });
 
       const courseIds = courseRunGrouped
         .map((item) => item.courseId)
@@ -169,7 +192,7 @@ export const rankingRouter = createTRPCRouter({
           likeCount: course._count.likes,
           centerLat: course.centerLat,
           centerLng: course.centerLng,
-          waypoints: course.waypoints,
+          waypoints: sampleWaypoints(course.waypoints),
           creatorName: course.creator.name,
         })),
         collectorRankings: collectorRankSource.map((ranking) => ({

@@ -41,10 +41,17 @@ export function AdSlot({ className, slotId, format = 'auto' }: AdSlotProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const clientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
   const effectiveSlot = slotId ?? process.env.NEXT_PUBLIC_ADSENSE_SLOT_INLINE;
-  const [hasConsent, setHasConsent] = useState(false);
+  const [hasConsent, setHasConsent] = useState(() => hasGrantedConsent());
 
   useEffect(() => {
-    setHasConsent(hasGrantedConsent());
+    const syncConsent = () => {
+      setHasConsent(hasGrantedConsent());
+    };
+
+    window.addEventListener('rg-consent-changed', syncConsent);
+    return () => {
+      window.removeEventListener('rg-consent-changed', syncConsent);
+    };
   }, []);
 
   useEffect(() => {

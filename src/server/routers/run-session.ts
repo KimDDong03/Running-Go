@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 import { filterLowAccuracyPoints } from '@/lib/path-matching';
 
@@ -50,21 +50,10 @@ export const runSessionRouter = createTRPCRouter({
         runSessionId: runSession.id,
       };
     }),
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input, ctx }) => {
-      const userId = ctx.userId
-        ?? (await prisma.user.upsert({
-          where: { providerId: 'guest' },
-          update: {},
-          create: {
-            email: 'guest@running-go.local',
-            name: '게스트',
-            image: null,
-            provider: 'guest',
-            providerId: 'guest',
-          },
-        })).id;
+      const userId = ctx.userId;
       const runSession = await prisma.runSession.findFirst({
         where: { id: input.id, userId },
       });

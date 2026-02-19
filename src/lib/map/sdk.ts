@@ -18,6 +18,7 @@ export interface MapBounds {
 
 export interface MapLike {
   setCenter: (latLng: MapLatLng) => void;
+  panTo?: (latLng: MapLatLng, options?: { duration?: number }) => void;
   setZoom: (zoom: number) => void;
   setBearing?: (bearing: number) => void;
   getBearing?: () => number;
@@ -113,6 +114,13 @@ class AdapterBounds implements MapBounds {
 class AdapterMap implements MapLike {
   constructor(private readonly map: maplibregl.Map) {}
   setCenter(latLng: MapLatLng) { this.map.setCenter([latLng.lng(), latLng.lat()]); }
+  panTo(latLng: MapLatLng, options?: { duration?: number }) {
+    this.map.easeTo({
+      center: [latLng.lng(), latLng.lat()],
+      duration: options?.duration ?? 420,
+      essential: true,
+    });
+  }
   setZoom(zoom: number) { this.map.setZoom(zoom); }
   setBearing(bearing: number) { this.map.setBearing(bearing); }
   getBearing() { return this.map.getBearing(); }
@@ -124,11 +132,26 @@ class AdapterMap implements MapLike {
     disableDoubleClickZoom?: boolean;
     disableDoubleTapZoom?: boolean;
   }) {
-    if (typeof options.draggable === 'boolean') options.draggable ? this.map.dragPan.enable() : this.map.dragPan.disable();
-    if (typeof options.scrollWheel === 'boolean') options.scrollWheel ? this.map.scrollZoom.enable() : this.map.scrollZoom.disable();
-    if (typeof options.pinchZoom === 'boolean') options.pinchZoom ? this.map.touchZoomRotate.enable() : this.map.touchZoomRotate.disable();
-    if (typeof options.keyboardShortcuts === 'boolean') options.keyboardShortcuts ? this.map.keyboard.enable() : this.map.keyboard.disable();
-    if (typeof options.disableDoubleClickZoom === 'boolean') options.disableDoubleClickZoom ? this.map.doubleClickZoom.disable() : this.map.doubleClickZoom.enable();
+    if (typeof options.draggable === 'boolean') {
+      if (options.draggable) this.map.dragPan.enable();
+      else this.map.dragPan.disable();
+    }
+    if (typeof options.scrollWheel === 'boolean') {
+      if (options.scrollWheel) this.map.scrollZoom.enable();
+      else this.map.scrollZoom.disable();
+    }
+    if (typeof options.pinchZoom === 'boolean') {
+      if (options.pinchZoom) this.map.touchZoomRotate.enable();
+      else this.map.touchZoomRotate.disable();
+    }
+    if (typeof options.keyboardShortcuts === 'boolean') {
+      if (options.keyboardShortcuts) this.map.keyboard.enable();
+      else this.map.keyboard.disable();
+    }
+    if (typeof options.disableDoubleClickZoom === 'boolean') {
+      if (options.disableDoubleClickZoom) this.map.doubleClickZoom.disable();
+      else this.map.doubleClickZoom.enable();
+    }
   }
   getCenter() { const center = this.map.getCenter(); return new AdapterLatLng(center.lat, center.lng); }
   getZoom() { return this.map.getZoom(); }

@@ -77,7 +77,10 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   const { data: session, status: sessionStatus } = useSession();
   const { data: course, isLoading, isError } = trpc.course.byId.useQuery({ id });
   const utils = trpc.useUtils();
-  const { data: likeStatus, refetch: refetchLike } = trpc.like.status.useQuery({ courseId: id });
+  const { data: likeStatus, refetch: refetchLike } = trpc.like.status.useQuery(
+    { courseId: id },
+    { enabled: sessionStatus === 'authenticated' }
+  );
   const likeMutation = trpc.like.toggle.useMutation({
     onSuccess: () => {
       refetchLike();

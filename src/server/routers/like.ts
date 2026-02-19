@@ -1,6 +1,32 @@
 import { z } from 'zod';
-import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
+
+const sampleWaypoints = (value: unknown, maxPoints: number = 80) => {
+  if (!Array.isArray(value)) return [];
+  const points = value
+    .map((point) => {
+      if (!point || typeof point !== 'object') return null;
+      const lat = (point as { lat?: unknown }).lat;
+      const lng = (point as { lng?: unknown }).lng;
+      const order = (point as { order?: unknown }).order;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+      return { lat, lng, order: typeof order === 'number' ? order : 0 };
+    })
+    .filter((point): point is { lat: number; lng: number; order: number } => Boolean(point))
+    .sort((a, b) => a.order - b.order);
+
+  if (points.length <= maxPoints) return points;
+  const step = Math.ceil(points.length / maxPoints);
+  const sampled: { lat: number; lng: number; order: number }[] = [];
+  for (let i = 0; i < points.length; i += step) {
+    sampled.push(points[i]);
+  }
+  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+    sampled.push(points[points.length - 1]);
+  }
+  return sampled;
+};
 
 export const likeRouter = createTRPCRouter({
   listByUser: protectedProcedure
@@ -39,7 +65,7 @@ export const likeRouter = createTRPCRouter({
             id: like.course.id,
             title: like.course.title,
             thumbnailUrl: like.course.thumbnailUrl,
-            waypoints: like.course.waypoints,
+            waypoints: sampleWaypoints(like.course.waypoints),
             centerLat: like.course.centerLat,
             centerLng: like.course.centerLng,
             totalDistance: like.course.totalDistance,
@@ -50,32 +76,19 @@ export const likeRouter = createTRPCRouter({
       };
     }),
 
-  status: publicProcedure
+  status: protectedProcedure
     .input(z.object({ courseId: z.string() }))
     .query(async ({ input, ctx }) => {
-      const userId = ctx.userId
-        ?? (await prisma.user.upsert({
-          where: { providerId: 'guest' },
-          update: {},
-          create: {
-            email: 'guest@running-go.local',
-            name: '게스트',
-            image: null,
-            provider: 'guest',
-            providerId: 'guest',
-          },
-        })).id;
+      const userId = ctx.userId;
       const [like, count] = await Promise.all([
-        userId
-          ? prisma.like.findUnique({
-            where: {
-              userId_courseId: {
-                userId,
-                courseId: input.courseId,
-              },
+        prisma.like.findUnique({
+          where: {
+            userId_courseId: {
+              userId,
+              courseId: input.courseId,
             },
-          })
-          : Promise.resolve(null),
+          },
+        }),
         prisma.like.count({
           where: { courseId: input.courseId },
         }),
@@ -86,21 +99,10 @@ export const likeRouter = createTRPCRouter({
         likeCount: count,
       };
     }),
-  toggle: publicProcedure
+  toggle: protectedProcedure
     .input(z.object({ courseId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const userId = ctx.userId
-        ?? (await prisma.user.upsert({
-          where: { providerId: 'guest' },
-          update: {},
-          create: {
-            email: 'guest@running-go.local',
-            name: '게스트',
-            image: null,
-            provider: 'guest',
-            providerId: 'guest',
-          },
-        })).id;
+      const userId = ctx.userId;
       const existing = await prisma.like.findUnique({
         where: {
           userId_courseId: {

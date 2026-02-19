@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { type SyntheticEvent, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
 
 const CONSENT_COOKIE_KEY = 'rg-consent';
@@ -13,6 +13,7 @@ const setConsent = (value: 'granted' | 'denied') => {
 };
 
 const getConsent = () => {
+  if (typeof document === 'undefined') return null;
   const cookie = document.cookie
     .split(';')
     .map((part) => part.trim())
@@ -24,11 +25,14 @@ const getConsent = () => {
 
 export function ConsentBanner() {
   const { locale } = useLocale();
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(() => getConsent() === null);
 
-  useEffect(() => {
-    setIsVisible(getConsent() === null);
-  }, []);
+  const handleConsent = (value: 'granted' | 'denied', event?: SyntheticEvent) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    setConsent(value);
+    setIsVisible(false);
+  };
 
   if (!isVisible) {
     return null;
@@ -52,37 +56,48 @@ export function ConsentBanner() {
         cookies: 'Cookie Policy',
       };
 
-  return (
-    <aside className="fixed bottom-4 left-4 right-4 z-[80] mx-auto w-[min(880px,calc(100vw-2rem))] rounded-2xl border border-white/70 bg-white/95 p-4 shadow-[0_24px_48px_-32px_rgba(15,23,42,0.72)] backdrop-blur-xl">
-      <p className="text-sm font-semibold text-slate-900">{copy.title}</p>
-      <p className="mt-1 text-xs leading-5 text-slate-600">{copy.description}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-        <Link href="/privacy" className="underline underline-offset-2">{copy.privacy}</Link>
-        <Link href="/cookies" className="underline underline-offset-2">{copy.cookies}</Link>
-      </div>
-      <div className="mt-3 flex items-center justify-end gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          className="rounded-full"
-          onClick={() => {
-            setConsent('denied');
-            setIsVisible(false);
-          }}
-        >
-          {copy.reject}
-        </Button>
-        <Button
-          size="sm"
-          className="rounded-full"
-          onClick={() => {
-            setConsent('granted');
-            setIsVisible(false);
-          }}
-        >
-          {copy.accept}
-        </Button>
-      </div>
-    </aside>
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 pointer-events-auto"
+      style={{ zIndex: 2147483647 }}
+      onPointerDownCapture={(event) => event.stopPropagation()}
+      onTouchStartCapture={(event) => event.stopPropagation()}
+      onClickCapture={(event) => event.stopPropagation()}
+    >
+      <div className="absolute inset-0 bg-slate-900/25" />
+      <aside className="fixed bottom-4 left-4 right-4 !pointer-events-auto touch-manipulation mx-auto w-[min(880px,calc(100vw-2rem))] rounded-2xl border border-white/70 bg-white/95 p-4 shadow-[0_24px_48px_-32px_rgba(15,23,42,0.72)] backdrop-blur-xl">
+        <p className="text-sm font-semibold text-slate-900">{copy.title}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">{copy.description}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <Link href="/privacy" className="underline underline-offset-2">{copy.privacy}</Link>
+          <Link href="/cookies" className="underline underline-offset-2">{copy.cookies}</Link>
+        </div>
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="h-9 rounded-full border border-white/70 bg-white/82 px-3.5 text-sm font-semibold tracking-tight text-slate-700 shadow-[0_12px_24px_-20px_rgba(15,23,42,0.6)] backdrop-blur touch-manipulation"
+            onClick={(event) => handleConsent('denied', event)}
+            onPointerUp={(event) => handleConsent('denied', event)}
+            onTouchEnd={(event) => handleConsent('denied', event)}
+          >
+            {copy.reject}
+          </button>
+          <button
+            type="button"
+            className="h-9 rounded-full bg-[linear-gradient(135deg,#0ea5e9_0%,#0284c7_48%,#0369a1_100%)] px-3.5 text-sm font-semibold tracking-tight text-white shadow-[0_18px_32px_-20px_rgba(14,165,233,0.95)] touch-manipulation"
+            onClick={(event) => handleConsent('granted', event)}
+            onPointerUp={(event) => handleConsent('granted', event)}
+            onTouchEnd={(event) => handleConsent('granted', event)}
+          >
+            {copy.accept}
+          </button>
+        </div>
+      </aside>
+    </div>,
+    document.body
   );
 }

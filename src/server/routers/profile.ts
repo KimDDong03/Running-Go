@@ -1,24 +1,8 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
-
-const getOrCreateGuestUserId = async (userId: string | null) => {
-  if (userId) return userId;
-  const guest = await prisma.user.upsert({
-    where: { providerId: 'guest' },
-    update: {},
-    create: {
-      email: 'guest@running-go.local',
-      name: '게스트',
-      image: null,
-      provider: 'guest',
-      providerId: 'guest',
-    },
-  });
-  return guest.id;
-};
 
 export const profileRouter = createTRPCRouter({
   deleteAccount: protectedProcedure
@@ -148,8 +132,8 @@ export const profileRouter = createTRPCRouter({
       };
     }),
 
-  summary: publicProcedure.query(async ({ ctx }) => {
-    const userId = await getOrCreateGuestUserId(ctx.userId);
+  summary: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.userId;
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
     const [createdCount, collectionCount, runStats, runCount, createdCourses] = await Promise.all([
@@ -174,9 +158,9 @@ export const profileRouter = createTRPCRouter({
 
     return {
       user: {
-        name: user?.name ?? '게스트',
+        name: user?.name ?? '사용자',
         image: user?.image ?? null,
-        isGuest: user?.provider === 'guest',
+        isGuest: false,
       },
       stats: {
         createdCourses: createdCount,

@@ -1,6 +1,6 @@
 'use client';
 
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -40,7 +40,14 @@ const DEFAULT_CENTER = {
   lng: 126.978,
 };
 
-const INITIAL_PANEL_HEIGHT = 108;
+const BOTTOM_NAV_HEIGHT_PX = 74;
+const PANEL_MIN_HEIGHT_PX = 32;
+const PANEL_TOP_RESERVED_PX = 148;
+const PANEL_SNAP_INDEX = {
+  MIN: 0,
+  MID: 1,
+  MAX: 2,
+} as const;
 const ONBOARDING_STORAGE_KEY = 'running-go:onboarding:v1';
 const LAST_LOCATION_STORAGE_KEY = 'running-go:last-location:v1';
 const MAP_VIEWPORT_STORAGE_KEY = 'running-go:map-viewport:v1';
@@ -85,10 +92,9 @@ const ONBOARDING_STEPS_EN = [
   },
 ] as const;
 
-const getPanelSnapHeights = () => {
-  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 900;
-  const min = 108;
-  const maxCandidate = Math.min(Math.round(viewportHeight * 0.9), viewportHeight - 92);
+const getPanelSnapHeights = (viewportHeight: number) => {
+  const min = PANEL_MIN_HEIGHT_PX;
+  const maxCandidate = Math.min(Math.round(viewportHeight * 0.84), viewportHeight - PANEL_TOP_RESERVED_PX);
   const max = Math.max(min + 180, maxCandidate);
   const mid = Math.round((min + max) / 2);
 
@@ -120,6 +126,15 @@ const parseCourseListSort = (value: string): CourseListSort => {
   return 'LATEST';
 };
 
+const getInitialListSort = (): CourseListSort => {
+  if (typeof window === 'undefined') {
+    return 'NEAREST';
+  }
+
+  const sortParam = new URLSearchParams(window.location.search).get('sort');
+  return sortParam ? parseCourseListSort(sortParam) : 'NEAREST';
+};
+
 const toRadians = (value: number) => (value * Math.PI) / 180;
 
 const calculateDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
@@ -135,6 +150,85 @@ const calculateDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: num
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadius * c;
 };
+
+interface MapCourseCardProps {
+  id: string;
+  title: string;
+  totalDistance: number;
+  estimatedTime: number;
+  likeCount: number;
+  centerLat: number;
+  centerLng: number;
+  previewUrl: string;
+  difficulty: Difficulty;
+  isSelected: boolean;
+  isEnglish: boolean;
+  difficultyText: string;
+  distanceText: string;
+  onSelect: (courseId: string, centerLat: number, centerLng: number) => void;
+}
+
+const MapCourseCard = memo(function MapCourseCard({
+  id,
+  title,
+  totalDistance,
+  estimatedTime,
+  likeCount,
+  centerLat,
+  centerLng,
+  previewUrl,
+  difficulty,
+  isSelected,
+  isEnglish,
+  difficultyText,
+  distanceText,
+  onSelect,
+}: MapCourseCardProps) {
+  return (
+    <button
+      type="button"
+      className="w-full text-left"
+      onClick={() => onSelect(id, centerLat, centerLng)}
+    >
+      <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${isSelected ? 'rg-selected border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
+        <CardContent className="p-3">
+          <div className="flex gap-3">
+            <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+              <Image
+                src={previewUrl}
+                alt={isEnglish ? `${title} map` : `${title} 지도`}
+                fill
+                sizes="120px"
+                quality={70}
+                unoptimized
+                className="object-cover"
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-sm font-semibold text-slate-900">{title}</h3>
+              <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
+                <MapPin className="h-3.5 w-3.5" />
+                <span>{totalDistance.toFixed(1)}km</span>
+                <span>•</span>
+                <span>{estimatedTime}{isEnglish ? ' min' : '분'}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">{isEnglish ? 'From my location' : '내 위치에서'} {distanceText}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <Badge className={`${difficultyColors[difficulty]} rounded-full text-[11px]`}>
+                  {difficultyText}
+                </Badge>
+                <div className="flex items-center gap-1 text-xs text-slate-600">
+                  <Heart className="h-3.5 w-3.5" />
+                  <span>{likeCount}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </button>
+  );
+});
 
 const readStoredLocation = () => {
   if (typeof window === 'undefined') return null;
@@ -167,16 +261,17 @@ export default function CoursesPage() {
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
   const [viewMode] = useState<'list' | 'map'>('map');
-  const [listSort, setListSort] = useState<CourseListSort>('NEAREST');
+  const [listSort, setListSort] = useState<CourseListSort>(() => getInitialListSort());
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const userLocationRef = useRef(userLocation);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [panelHeight, setPanelHeight] = useState<number>(INITIAL_PANEL_HEIGHT);
+  const [panelHeight, setPanelHeight] = useState<number>(PANEL_MIN_HEIGHT_PX);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState<number>(900);
   const [headingMode, setHeadingMode] = useState<HeadingMode>('off');
   const [isNearbyCourseMarkerVisible, setIsNearbyCourseMarkerVisible] = useState(true);
-  const [isMarkerButtonVisible, setIsMarkerButtonVisible] = useState(false);
+  const [isMarkerButtonVisible, setIsMarkerButtonVisible] = useState(true);
   const [nearbySearch, setNearbySearch] = useState<{ lat: number; lng: number; radiusKm: number }>({
     lat: DEFAULT_CENTER.lat,
     lng: DEFAULT_CENTER.lng,
@@ -191,7 +286,6 @@ export default function CoursesPage() {
   useEffect(() => {
     userLocationRef.current = userLocation;
   }, [userLocation]);
-  const panelSectionRef = useRef<HTMLElement>(null);
   const panelContentRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const mapRef = useRef<MapLike | null>(null);
@@ -200,9 +294,7 @@ export default function CoursesPage() {
   const courseMarkersRef = useRef<MapMarkerLike[]>([]);
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
-  const panelDragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const panelTouchDragStateRef = useRef<{ startY: number; startHeight: number; lastHeight: number; startScrollTop: number; pullDistance: number; isDragging: boolean } | null>(null);
-  const panelHeightRef = useRef<number>(INITIAL_PANEL_HEIGHT);
+  const panelDragStateRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
   const markerReshowOnMoveRef = useRef(false);
   const markerReshowStartViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
   const headingModeRef = useRef<HeadingMode>('off');
@@ -212,6 +304,15 @@ export default function CoursesPage() {
   const currentHeadingRef = useRef<number>(0);
   const hasTrackedExploreViewedRef = useRef(false);
   const profileImageRef = useRef<string | null>(null);
+  const lastListAutoFitCourseIdRef = useRef<string | null>(null);
+  const isPanelInteractingRef = useRef(false);
+  const panelSectionRef = useRef<HTMLElement | null>(null);
+  const panelHeightRef = useRef<number>(PANEL_MIN_HEIGHT_PX);
+  const panelHeightRafRef = useRef<number | null>(null);
+  const panelPendingHeightRef = useRef<number | null>(null);
+  const panelSnapIndexRef = useRef<number>(PANEL_SNAP_INDEX.MIN);
+  const panelContentPullStateRef = useRef<{ startY: number; startHeight: number; isDraggingPanel: boolean } | null>(null);
+  const panelContentPointerPullStateRef = useRef<{ pointerId: number; startY: number; startHeight: number; isDraggingPanel: boolean } | null>(null);
 
   const normalizeHeading = (heading: number) => {
     const normalized = heading % 360;
@@ -301,39 +402,42 @@ export default function CoursesPage() {
     return true;
   };
 
-  const syncNearbySearchFromMap = (mapInstance: MapLike) => {
-    const center = mapInstance.getCenter();
+  const syncNearbySearchFromMap = useCallback((mapInstance: MapLike, centerOverride?: { lat: number; lng: number }) => {
+    const mapCenter = mapInstance.getCenter();
+    const centerLat = centerOverride?.lat ?? mapCenter.lat();
+    const centerLng = centerOverride?.lng ?? mapCenter.lng();
     const bounds = mapInstance.getBounds();
     const northEast = bounds.getNE();
     const radiusKmFromViewport = calculateDistanceKm(
-      center.lat(),
-      center.lng(),
+      centerLat,
+      centerLng,
       northEast.lat(),
       northEast.lng()
     );
 
     setNearbySearch({
-      lat: center.lat(),
-      lng: center.lng(),
+      lat: centerLat,
+      lng: centerLng,
       radiusKm: Math.min(20, Math.max(1.5, radiusKmFromViewport)),
     });
-  };
+  }, []);
 
-  const syncMarkerViewport = () => {
+  const syncMarkerViewport = useCallback((centerOverride?: { lat: number; lng: number }) => {
     const mapInstance = mapRef.current;
     if (!mapInstance) return;
 
-    syncNearbySearchFromMap(mapInstance);
-    const center = mapInstance.getCenter();
+    syncNearbySearchFromMap(mapInstance, centerOverride);
+    const centerLat = centerOverride?.lat ?? mapInstance.getCenter().lat();
+    const centerLng = centerOverride?.lng ?? mapInstance.getCenter().lng();
     markerReshowOnMoveRef.current = true;
     markerReshowStartViewportRef.current = {
-      lat: center.lat(),
-      lng: center.lng(),
+      lat: centerLat,
+      lng: centerLng,
       zoom: mapInstance.getZoom(),
     };
     setIsNearbyCourseMarkerVisible(true);
     setIsMarkerButtonVisible(false);
-  };
+  }, [syncNearbySearchFromMap]);
 
   const courseListInput = useMemo(() => {
     if (listSort === 'NEAREST' && userLocation) {
@@ -371,10 +475,35 @@ export default function CoursesPage() {
     { id: selectedCourseId ?? '' },
     { enabled: Boolean(selectedCourseId) }
   );
-  const { data: profileSummary } = trpc.profile.summary.useQuery();
+  const { data: profileSummary } = trpc.profile.summary.useQuery(undefined, {
+    enabled: sessionStatus === 'authenticated',
+  });
   useEffect(() => {
     profileImageRef.current = profileSummary?.user.image ?? null;
   }, [profileSummary?.user.image]);
+
+  useEffect(() => {
+    if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current || !userMarkerRef.current) return;
+
+    const markerImage = profileSummary?.user.image ?? null;
+    if (userMarkerImageRef.current === markerImage) return;
+
+    const currentPosition = userMarkerRef.current.getPosition?.() ?? mapRef.current.getCenter();
+    const markerContent = createCurrentLocationMarkerElement(markerImage, { size: 36 });
+    headingIndicatorElementRef.current = markerContent.querySelector('[data-role="heading-indicator"]') as HTMLElement | null;
+    userMarkerRef.current.setMap(null);
+    userMarkerRef.current = new mapSdkRef.current.Marker({
+      map: mapRef.current,
+      position: currentPosition,
+      icon: {
+        content: markerContent,
+        size: new mapSdkRef.current.Size(36, 36),
+        anchor: new mapSdkRef.current.Point(18, 18),
+      },
+    });
+    userMarkerImageRef.current = markerImage;
+    applyHeadingMode(headingModeRef.current);
+  }, [applyHeadingMode, profileSummary?.user.image, viewMode]);
 
   const selectedWaypointList = useMemo(() => {
     if (!selectedCourseId) return [] as { lat: number; lng: number }[];
@@ -437,196 +566,260 @@ export default function CoursesPage() {
     });
   }, [listSort, selectedCourse, selectedCourseId, selectionSource]);
 
-  const snapPanelHeight = (height: number) => {
-    const { min, mid, max } = getPanelSnapHeights();
-    const candidates = [min, mid, max];
+  const panelSnapHeights = useMemo(() => getPanelSnapHeights(viewportHeight), [viewportHeight]);
+
+  const getPanelHeightFromSnapIndex = useCallback((index: number) => {
+    if (index === PANEL_SNAP_INDEX.MID) return panelSnapHeights.mid;
+    if (index === PANEL_SNAP_INDEX.MAX) return panelSnapHeights.max;
+    return panelSnapHeights.min;
+  }, [panelSnapHeights.max, panelSnapHeights.mid, panelSnapHeights.min]);
+
+  const applyPanelHeight = useCallback((height: number, commitState: boolean) => {
+    panelHeightRef.current = height;
+    if (panelSectionRef.current) {
+      panelSectionRef.current.style.height = `${height}px`;
+    }
+    if (commitState) {
+      setPanelHeight(height);
+    }
+  }, []);
+
+  const snapPanelHeight = useCallback((height: number) => {
+    const candidates = [panelSnapHeights.min, panelSnapHeights.mid, panelSnapHeights.max];
     const nearest = candidates.reduce((closest, value) => {
       return Math.abs(value - height) < Math.abs(closest - height) ? value : closest;
     }, candidates[0]);
-    setPanelHeight(nearest);
-  };
+
+    const nextIndex = nearest === panelSnapHeights.max
+      ? PANEL_SNAP_INDEX.MAX
+      : nearest === panelSnapHeights.mid
+        ? PANEL_SNAP_INDEX.MID
+        : PANEL_SNAP_INDEX.MIN;
+
+    panelSnapIndexRef.current = nextIndex;
+    applyPanelHeight(nearest, true);
+  }, [applyPanelHeight, panelSnapHeights.max, panelSnapHeights.mid, panelSnapHeights.min]);
+
+  const snapPanelTo = useCallback((index: number) => {
+    const safeIndex = Math.max(PANEL_SNAP_INDEX.MIN, Math.min(PANEL_SNAP_INDEX.MAX, index)) as 0 | 1 | 2;
+    const nextHeight = getPanelHeightFromSnapIndex(safeIndex);
+    panelSnapIndexRef.current = safeIndex;
+    applyPanelHeight(nextHeight, true);
+  }, [applyPanelHeight, getPanelHeightFromSnapIndex]);
+
+  const collapsePanelToMin = useCallback(() => {
+    snapPanelTo(PANEL_SNAP_INDEX.MIN);
+  }, [snapPanelTo]);
 
   const onPanelHandlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType !== 'mouse') return;
-    panelDragStateRef.current = { startY: event.clientY, startHeight: panelHeight };
+    panelDragStateRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: panelHeightRef.current,
+    };
     setIsPanelDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onPanelHandlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType !== 'mouse') return;
-    if (!panelDragStateRef.current) return;
+    const dragState = panelDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
 
-    const { min, max } = getPanelSnapHeights();
-    const delta = panelDragStateRef.current.startY - event.clientY;
-    const nextHeight = panelDragStateRef.current.startHeight + delta;
-    const clampedHeight = Math.max(min, Math.min(max, nextHeight));
-    setPanelHeight(clampedHeight);
+    const delta = dragState.startY - event.clientY;
+    const nextHeight = dragState.startHeight + delta;
+    const clamped = Math.max(panelSnapHeights.min, Math.min(panelSnapHeights.max, nextHeight));
+    panelPendingHeightRef.current = clamped;
+    if (panelHeightRafRef.current !== null) return;
+    panelHeightRafRef.current = window.requestAnimationFrame(() => {
+      panelHeightRafRef.current = null;
+      if (typeof panelPendingHeightRef.current !== 'number') return;
+      applyPanelHeight(panelPendingHeightRef.current, false);
+    });
   };
 
   const onPanelHandlePointerEnd = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType !== 'mouse') return;
-    if (!panelDragStateRef.current) return;
-
-    const { min, mid, max } = getPanelSnapHeights();
-    const startHeight = panelDragStateRef.current.startHeight;
-    const delta = startHeight ? panelDragStateRef.current.startY - event.clientY : 0;
-    const nextHeight = startHeight + delta;
-    const clampedHeight = Math.max(min, Math.min(max, nextHeight));
-
+    const dragState = panelDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
     panelDragStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (panelHeightRafRef.current !== null) {
+      window.cancelAnimationFrame(panelHeightRafRef.current);
+      panelHeightRafRef.current = null;
+      if (typeof panelPendingHeightRef.current === 'number') {
+        applyPanelHeight(panelPendingHeightRef.current, false);
+      }
+    }
+    panelPendingHeightRef.current = null;
     setIsPanelDragging(false);
+    snapPanelHeight(panelHeightRef.current);
+  };
+
+  const setMapInteractiveForPanel = useCallback((isInteracting: boolean) => {
+    const mapInstance = mapRef.current;
+    if (!mapInstance) return;
+    mapInstance.setOptions?.({
+      draggable: !isInteracting,
+      pinchZoom: !isInteracting,
+      scrollWheel: !isInteracting,
+    });
+  }, []);
+
+  const beginPanelInteraction = useCallback(() => {
+    if (isPanelInteractingRef.current) return;
+    isPanelInteractingRef.current = true;
+    setMapInteractiveForPanel(true);
+  }, [setMapInteractiveForPanel]);
+
+  const endPanelInteraction = useCallback(() => {
+    if (!isPanelInteractingRef.current) return;
+    isPanelInteractingRef.current = false;
+    setMapInteractiveForPanel(false);
+  }, [setMapInteractiveForPanel]);
+
+  const onPanelContentPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      beginPanelInteraction();
+      return;
+    }
+
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+
+    panelContentPointerPullStateRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: panelHeightRef.current,
+      isDraggingPanel: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [beginPanelInteraction]);
+
+  const onPanelContentPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = panelContentPointerPullStateRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+
+    const deltaY = event.clientY - state.startY;
+    const content = event.currentTarget;
+
+    if (!state.isDraggingPanel) {
+      if (deltaY <= 0) return;
+      if (content.scrollTop > 0.5) return;
+      state.isDraggingPanel = true;
+      state.startHeight = panelHeightRef.current;
+      beginPanelInteraction();
+      setIsPanelDragging(true);
+    }
+
+    event.preventDefault();
+    const nextHeight = state.startHeight - deltaY;
+    const clamped = Math.max(panelSnapHeights.min, Math.min(panelSnapHeights.max, nextHeight));
+    applyPanelHeight(clamped, false);
+  }, [applyPanelHeight, beginPanelInteraction, panelSnapHeights.max, panelSnapHeights.min]);
+
+  const onPanelContentPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = panelContentPointerPullStateRef.current;
+    if (!state || state.pointerId !== event.pointerId) {
+      if (event.pointerType === 'touch') {
+        endPanelInteraction();
+      }
+      return;
+    }
+
+    panelContentPointerPullStateRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
-    if (startHeight <= min + 16 && clampedHeight > startHeight + 24) {
-      setPanelHeight(mid);
+    if (state.isDraggingPanel) {
+      setIsPanelDragging(false);
+      snapPanelHeight(panelHeightRef.current);
+      endPanelInteraction();
       return;
     }
 
-    snapPanelHeight(clampedHeight);
-  };
+    endPanelInteraction();
+  }, [endPanelInteraction, snapPanelHeight]);
 
-  const collapsePanelToMin = useCallback(() => {
-    const { min } = getPanelSnapHeights();
-    setPanelHeight((prev) => (prev > min ? min : prev));
-  }, []);
-
-  useEffect(() => {
-    panelHeightRef.current = panelHeight;
-  }, [panelHeight]);
-
-  useEffect(() => {
-    const panelSectionElement = panelSectionRef.current;
-    const panelContentElement = panelContentRef.current;
-    if (!panelSectionElement || !panelContentElement) return;
-
-    const onTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1) return;
-
-      const touch = event.touches[0];
-      if (!touch) return;
-
-      panelTouchDragStateRef.current = {
-        startY: touch.clientY,
-        startHeight: panelHeightRef.current,
-        lastHeight: panelHeightRef.current,
-        startScrollTop: panelContentElement.scrollTop,
-        pullDistance: 0,
-        isDragging: false,
-      };
+  const onPanelContentTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    beginPanelInteraction();
+    panelContentPullStateRef.current = {
+      startY: event.touches[0]?.clientY ?? 0,
+      startHeight: panelHeightRef.current,
+      isDraggingPanel: false,
     };
+  }, [beginPanelInteraction]);
 
-    const onTouchMove = (event: TouchEvent) => {
-      const dragState = panelTouchDragStateRef.current;
-      if (!dragState || event.touches.length !== 1) return;
+  const onPanelContentTouchMove = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    const state = panelContentPullStateRef.current;
+    if (!state) return;
 
-      const touch = event.touches[0];
-      if (!touch) return;
+    const touch = event.touches[0];
+    if (!touch) return;
 
-      const pullDistance = touch.clientY - dragState.startY;
-      dragState.pullDistance = Math.max(dragState.pullDistance, pullDistance);
-      const isContentAtTop = panelContentElement.scrollTop <= 2;
-      const startedAtTop = dragState.startScrollTop <= 2;
+    const deltaY = touch.clientY - state.startY;
+    const content = event.currentTarget;
 
-      if (!dragState.isDragging) {
-        const isUpwardDrag = pullDistance < -12;
-        const isDownwardDrag = pullDistance > 12;
-        const { max } = getPanelSnapHeights();
-        const isPanelNearMax = dragState.startHeight >= max - 8;
+    if (!state.isDraggingPanel) {
+      if (deltaY <= 0) return;
+      if (content.scrollTop > 0.5) return;
+      state.isDraggingPanel = true;
+      state.startHeight = panelHeightRef.current;
+      setIsPanelDragging(true);
+    }
 
-        if (!isUpwardDrag && !isDownwardDrag) {
-          return;
-        }
+    event.preventDefault();
+    const nextHeight = state.startHeight - deltaY;
+    const clamped = Math.max(panelSnapHeights.min, Math.min(panelSnapHeights.max, nextHeight));
+    applyPanelHeight(clamped, false);
+  }, [applyPanelHeight, panelSnapHeights.max, panelSnapHeights.min]);
 
-        if (isUpwardDrag && (isPanelNearMax || (!isContentAtTop && !startedAtTop))) {
-          return;
-        }
-
-        if (isDownwardDrag && !isContentAtTop && !startedAtTop) {
-          return;
-        }
-
-        dragState.isDragging = true;
-        setIsPanelDragging(true);
-        panelContentElement.style.overflowY = 'hidden';
-      }
-
-      if (event.cancelable) {
-        event.preventDefault();
-      }
-
-      const { min, max } = getPanelSnapHeights();
-      const nextHeight = dragState.startHeight - pullDistance;
-      const clampedHeight = Math.max(min, Math.min(max, nextHeight));
-      dragState.lastHeight = clampedHeight;
-      setPanelHeight(clampedHeight);
-    };
-
-    const onTouchEnd = () => {
-      const dragState = panelTouchDragStateRef.current;
-      panelTouchDragStateRef.current = null;
-      panelContentElement.style.overflowY = '';
-
-      if (!dragState) {
-        setIsPanelDragging(false);
-        return;
-      }
-
-      if (!dragState.isDragging) {
-        if (dragState.pullDistance > 36 && panelContentElement.scrollTop <= 2) {
-          const { min, mid } = getPanelSnapHeights();
-          const currentHeight = panelHeightRef.current;
-          setPanelHeight(currentHeight > mid ? mid : min);
-        }
-        setIsPanelDragging(false);
-        return;
-      }
-
+  const onPanelContentTouchEnd = useCallback(() => {
+    const state = panelContentPullStateRef.current;
+    panelContentPullStateRef.current = null;
+    if (state?.isDraggingPanel) {
       setIsPanelDragging(false);
-      const { min, mid, max } = getPanelSnapHeights();
-      const candidates = [min, mid, max];
-      let nearest = candidates.reduce((closest, value) => {
-        return Math.abs(value - dragState.lastHeight) < Math.abs(closest - dragState.lastHeight) ? value : closest;
-      }, candidates[0]);
+      snapPanelHeight(panelHeightRef.current);
+    }
+    endPanelInteraction();
+  }, [endPanelInteraction, snapPanelHeight]);
 
-      if (dragState.startHeight <= min + 16 && dragState.lastHeight > dragState.startHeight + 24) {
-        nearest = mid;
-      }
-
-      if (dragState.pullDistance > 12 && nearest >= dragState.startHeight) {
-        nearest = dragState.startHeight > mid ? mid : min;
-      }
-
-      setPanelHeight(nearest);
+  useEffect(() => {
+    const release = () => {
+      endPanelInteraction();
     };
 
-    panelSectionElement.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
-    panelSectionElement.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
-    panelSectionElement.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
-    panelSectionElement.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    window.addEventListener('touchend', release);
+    window.addEventListener('touchcancel', release);
 
     return () => {
-      panelSectionElement.removeEventListener('touchstart', onTouchStart, { capture: true });
-      panelSectionElement.removeEventListener('touchmove', onTouchMove, { capture: true });
-      panelSectionElement.removeEventListener('touchend', onTouchEnd, { capture: true });
-      panelSectionElement.removeEventListener('touchcancel', onTouchEnd, { capture: true });
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+      window.removeEventListener('touchend', release);
+      window.removeEventListener('touchcancel', release);
+      setMapInteractiveForPanel(false);
+    };
+  }, [endPanelInteraction, setMapInteractiveForPanel]);
+
+  useEffect(() => {
+    return () => {
+      if (panelHeightRafRef.current !== null) {
+        window.cancelAnimationFrame(panelHeightRafRef.current);
+      }
     };
   }, []);
 
   useEffect(() => {
-    const syncPanelHeightWithViewport = () => {
-      const { min, max } = getPanelSnapHeights();
-      setPanelHeight((prev) => {
-        return Math.max(min, Math.min(max, prev));
-      });
+    const syncViewportHeight = () => {
+      setViewportHeight(window.innerHeight);
     };
 
-    syncPanelHeightWithViewport();
-    window.addEventListener('resize', syncPanelHeightWithViewport);
+    syncViewportHeight();
+    window.addEventListener('resize', syncViewportHeight);
     return () => {
-      window.removeEventListener('resize', syncPanelHeightWithViewport);
+      window.removeEventListener('resize', syncViewportHeight);
     };
   }, []);
 
@@ -639,13 +832,14 @@ export default function CoursesPage() {
     const showMarkersParam = params.get('showMarkers');
 
     if (sortParam) {
-      setListSort(parseCourseListSort(sortParam));
       params.delete('sort');
     }
 
     if (showMarkersParam === '1') {
-      setIsNearbyCourseMarkerVisible(true);
-      setIsMarkerButtonVisible(false);
+      queueMicrotask(() => {
+        setIsNearbyCourseMarkerVisible(true);
+        setIsMarkerButtonVisible(false);
+      });
       params.delete('showMarkers');
     }
 
@@ -772,13 +966,13 @@ export default function CoursesPage() {
             },
           });
           userMarkerImageRef.current = markerImage;
+          applyHeadingMode(headingModeRef.current);
         }
 
         const handleMapDragStart = () => {
-          if (panelDragStateRef.current) return;
           collapsePanelToMin();
+          setIsMarkerButtonVisible(true);
           if (markerReshowOnMoveRef.current) {
-            setIsMarkerButtonVisible(true);
             markerReshowOnMoveRef.current = false;
             markerReshowStartViewportRef.current = null;
           }
@@ -793,8 +987,8 @@ export default function CoursesPage() {
         };
 
         const handleMapZoomChanged = () => {
+          setIsMarkerButtonVisible(true);
           if (markerReshowOnMoveRef.current) {
-            setIsMarkerButtonVisible(true);
             markerReshowOnMoveRef.current = false;
             markerReshowStartViewportRef.current = null;
           }
@@ -1013,6 +1207,34 @@ export default function CoursesPage() {
 
   }, [selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
 
+  useEffect(() => {
+    if (viewMode !== 'map' || selectionSource !== 'list') return;
+    if (!mapRef.current || !mapSdkRef.current) return;
+    if (!selectedCourseId || selectedWaypointList.length < 2) return;
+    if (lastListAutoFitCourseIdRef.current === selectedCourseId) return;
+
+    const sdk = mapSdkRef.current;
+    const mapInstance = mapRef.current;
+    const bounds = new sdk.LatLngBounds();
+    selectedWaypointList.forEach((point) => {
+      bounds.extend(new sdk.LatLng(point.lat, point.lng));
+    });
+
+    mapInstance.fitBounds(bounds, {
+      top: 56,
+      right: 40,
+      left: 40,
+      bottom: 140,
+    });
+    lastListAutoFitCourseIdRef.current = selectedCourseId;
+  }, [selectedCourseId, selectedWaypointList, selectionSource, viewMode]);
+
+  useEffect(() => {
+    if (!selectedCourseId || selectionSource !== 'list') {
+      lastListAutoFitCourseIdRef.current = null;
+    }
+  }, [selectedCourseId, selectionSource]);
+
   const samplePath = (points: { lat: number; lng: number }[]) => {
     if (points.length <= maxPathPoints) return points;
     const step = Math.ceil(points.length / maxPathPoints);
@@ -1030,15 +1252,34 @@ export default function CoursesPage() {
     return getCoursePreviewImageUrl(samplePath(points), center, { width: 640, height: 360 });
   };
 
-  const getCompactPreviewImageUrl = (points: { lat: number; lng: number }[], center: { lat: number; lng: number }) => {
-    return getCoursePreviewImageUrl(samplePath(points), center, { width: 240, height: 160 });
-  };
-  const panelTransitionClass = isPanelDragging ? '' : 'transition-[height] duration-200 ease-out';
-  const locationButtonTransitionClass = isPanelDragging ? '' : LOCATION_FAB_TRANSITION_CLASS;
-  const locationButtonBottom = panelHeight + (selectedCourse ? 72 : 12);
+  const mapPanelCourses = useMemo(() => {
+    return (courses?.courses ?? []).map((course) => {
+      const raw = Array.isArray(course.waypoints)
+        ? (course.waypoints as { lat: number; lng: number }[])
+        : [];
+      const sampled = raw.length <= maxPathPoints
+        ? raw
+        : (() => {
+          const step = Math.ceil(raw.length / maxPathPoints);
+          const next: { lat: number; lng: number }[] = [];
+          for (let i = 0; i < raw.length; i += step) {
+            next.push(raw[i]);
+          }
+          if (next[next.length - 1] !== raw[raw.length - 1]) {
+            next.push(raw[raw.length - 1]);
+          }
+          return next;
+        })();
+      return {
+        ...course,
+        previewUrl: getCoursePreviewImageUrl(sampled, { lat: course.centerLat, lng: course.centerLng }, { width: 240, height: 160 }),
+      };
+    });
+  }, [courses?.courses, maxPathPoints]);
+  const locationButtonTransitionClass = LOCATION_FAB_TRANSITION_CLASS;
+  const locationButtonBottom = panelHeight + BOTTOM_NAV_HEIGHT_PX + (selectedCourse ? 72 : 12);
   const canRenderMapPanelAd = !isLoading
     && !isError
-    && !isPanelDragging
     && !isOnboardingOpen
     && (courses?.courses.length ?? 0) >= 6;
   const locationButtonModeClass = headingMode === 'off'
@@ -1063,6 +1304,28 @@ export default function CoursesPage() {
 
     return `${distanceKm.toFixed(1)}km`;
   };
+
+  const focusMapOnCourse = useCallback((lat: number, lng: number) => {
+    const mapInstance = mapRef.current;
+    const sdk = mapSdkRef.current;
+    if (!mapInstance || !sdk) return;
+    const target = new sdk.LatLng(lat, lng);
+    if (mapInstance.panTo) {
+      mapInstance.panTo(target, { duration: 420 });
+      return;
+    }
+    mapInstance.setCenter(target);
+  }, []);
+
+  const handleMapListCourseSelect = useCallback((courseId: string, centerLat: number, centerLng: number) => {
+    setIsNearbyCourseMarkerVisible(true);
+    setSelectionSource('list');
+    focusMapOnCourse(centerLat, centerLng);
+    syncMarkerViewport({ lat: centerLat, lng: centerLng });
+    setSelectedCourseId((current) => (current === courseId ? null : courseId));
+    panelContentRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+    collapsePanelToMin();
+  }, [collapsePanelToMin, focusMapOnCourse, syncMarkerViewport]);
 
   const moveToCurrentLocation = () => {
     const mapInstance = mapRef.current;
@@ -1099,7 +1362,7 @@ export default function CoursesPage() {
       ? 'follow'
       : headingModeRef.current === 'follow'
         ? 'fan'
-        : 'follow';
+        : 'off';
 
     if (userLocation) {
       void moveAndApplyNextMode(userLocation.lat, userLocation.lng, nextMode);
@@ -1154,6 +1417,133 @@ export default function CoursesPage() {
 
   const onboardingStep = onboardingSteps[onboardingStepIndex];
   const isLastOnboardingStep = onboardingStepIndex === onboardingSteps.length - 1;
+  const panelScrollableContent = (
+    <div
+      ref={panelContentRef}
+      className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y px-4 pb-[max(env(safe-area-inset-bottom),12px)] [-webkit-overflow-scrolling:touch]"
+      style={{
+        WebkitOverflowScrolling: 'touch',
+        overscrollBehaviorY: 'contain',
+        touchAction: 'pan-y',
+      }}
+      onPointerDown={onPanelContentPointerDown}
+      onPointerMove={onPanelContentPointerMove}
+      onPointerUp={onPanelContentPointerEnd}
+      onPointerCancel={onPanelContentPointerEnd}
+      onTouchStart={onPanelContentTouchStart}
+      onTouchMove={onPanelContentTouchMove}
+      onTouchEnd={onPanelContentTouchEnd}
+      onTouchCancel={onPanelContentTouchEnd}
+    >
+      <div className="mb-3 space-y-2">
+        {starterCourse ? (
+          <button
+            type="button"
+            className="w-full rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-left"
+            onClick={() => {
+              setIsNearbyCourseMarkerVisible(true);
+              setSelectionSource('recommended');
+              setSelectedCourseId(starterCourse.id);
+              focusMapOnCourse(starterCourse.centerLat, starterCourse.centerLng);
+              snapPanelTo(PANEL_SNAP_INDEX.MID);
+            }}
+          >
+            <p className="text-[11px] font-semibold text-emerald-700">
+              {isEnglish ? 'Recommended first collect' : '첫 수집 추천 코스'}
+            </p>
+            <p className="mt-1 truncate text-xs font-medium text-slate-900">{starterCourse.title}</p>
+            <p className="mt-1 text-[11px] text-slate-600">
+              {starterCourse.totalDistance.toFixed(1)}km · {difficultyLabel(starterCourse.difficulty)}
+            </p>
+          </button>
+        ) : null}
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-900">{isEnglish ? 'Course List' : '코스 목록'}</p>
+            <p className="truncate text-xs text-slate-500">{courses?.courses.length ?? 0}{isEnglish ? ' courses' : '개 코스'}</p>
+          </div>
+        </div>
+        <select
+          value={listSort}
+          onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
+          className="rg-touch h-11 w-full rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
+        >
+          <option value="LATEST">{isEnglish ? 'Latest' : '최신순'}</option>
+          <option value="LIKES_DESC">{isEnglish ? 'Most Liked' : '좋아요 많은순'}</option>
+          <option value="NEAREST">{isEnglish ? 'Nearest (My Location)' : '가까운순(내 위치)'}</option>
+          <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
+          <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
+        </select>
+        {canRenderMapPanelAd ? (
+          <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+        ) : null}
+      </div>
+
+      {locationError && listSort === 'NEAREST' && (
+        <p className="mb-2 text-xs text-slate-500">{locationError}</p>
+      )}
+
+      {isNearbyError && (
+        <div className="mb-2 rounded-2xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+          {isEnglish ? 'Failed to load nearby courses.' : '주변 코스를 불러오지 못했습니다.'}
+          <button
+            type="button"
+            className="ml-2 font-semibold underline underline-offset-2"
+            onClick={() => refetchNearby()}
+          >
+            {isEnglish ? 'Retry' : '다시 시도'}
+          </button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-3 pt-1">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Card key={index} className="rounded-2xl border border-white/70 bg-white/80">
+              <CardContent className="p-3">
+                <Skeleton className="h-20 w-full rounded-xl" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : isError ? (
+        <ErrorState
+          title={isEnglish ? 'Failed to load courses' : '코스를 불러오지 못했습니다'}
+          message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
+          actionLabel={isEnglish ? 'Retry' : '다시 시도'}
+          onAction={() => refetch()}
+        />
+      ) : !courses?.courses || courses.courses.length === 0 ? (
+        <div className="py-12 text-center text-sm text-slate-500">{isEnglish ? 'No courses available.' : '등록된 코스가 없습니다'}</div>
+      ) : (
+        <div className="rg-stagger space-y-3 pb-2">
+          {mapPanelCourses.map((course, index) => (
+            <div key={course.id} className="space-y-3">
+              <MapCourseCard
+                id={course.id}
+                title={course.title}
+                totalDistance={course.totalDistance}
+                estimatedTime={course.estimatedTime}
+                likeCount={course.likeCount}
+                centerLat={course.centerLat}
+                centerLng={course.centerLng}
+                previewUrl={course.previewUrl}
+                difficulty={course.difficulty}
+                isSelected={selectedCourseId === course.id}
+                isEnglish={isEnglish}
+                difficultyText={difficultyLabel(course.difficulty)}
+                distanceText={getDistanceLabel(course.centerLat, course.centerLng)}
+                onSelect={handleMapListCourseSelect}
+              />
+              {index === 5 && canRenderMapPanelAd ? (
+                <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="h-[100dvh] overscroll-none overflow-hidden flex flex-col">
@@ -1243,7 +1633,7 @@ export default function CoursesPage() {
                 size="sm"
                 variant="outline"
                 className="rg-touch h-9 rounded-full border-white/80 bg-white/95 px-3 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
-                onClick={syncMarkerViewport}
+                onClick={() => syncMarkerViewport()}
               >
                 <MapPin className="mr-1 h-3.5 w-3.5" />
                 {isEnglish ? 'Show Here Markers' : '현지도에서 마커보기'}
@@ -1284,7 +1674,10 @@ export default function CoursesPage() {
             ) : null}
 
             {selectedCourse && (
-              <div className="absolute left-3 right-3 z-20" style={{ bottom: panelHeight + 12 }}>
+              <div
+                className="absolute left-3 right-3 z-20"
+                style={{ bottom: `calc(${panelHeight + 12}px + ${BOTTOM_NAV_HEIGHT_PX}px + env(safe-area-inset-bottom))` }}
+              >
                 <div className="mb-2 rounded-2xl border border-white/80 bg-white/95 px-3 py-2 shadow-[0_10px_20px_-16px_rgba(15,23,42,0.6)]">
                   <p className="truncate text-xs font-semibold text-slate-900">{selectedCourse.title}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
@@ -1322,13 +1715,18 @@ export default function CoursesPage() {
 
             <section
               ref={panelSectionRef}
-              className={`absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-3xl border-t border-white/70 bg-white/95 backdrop-blur-md shadow-[0_-16px_34px_-24px_rgba(15,23,42,0.55)] ${panelTransitionClass}`}
-              style={{ height: panelHeight }}
+              className="fixed inset-x-0 z-30 !bottom-[calc(74px+env(safe-area-inset-bottom))] flex flex-col rounded-t-3xl border-t border-white/70 bg-white/95 backdrop-blur-md shadow-[0_-16px_34px_-24px_rgba(15,23,42,0.55)]"
+              style={{
+                height: panelHeight,
+                maxHeight: '90dvh',
+                transition: isPanelDragging ? 'none' : 'height 180ms cubic-bezier(0.22, 1, 0.36, 1)',
+                willChange: 'height',
+              }}
             >
               <button
                 type="button"
                 aria-label={isEnglish ? 'Adjust list panel height' : '목록 패널 높이 조절'}
-                className="rg-touch shrink-0 flex w-full items-center justify-center py-3"
+                className="touch-none flex w-full items-center justify-center py-3"
                 onPointerDown={onPanelHandlePointerDown}
                 onPointerMove={onPanelHandlePointerMove}
                 onPointerUp={onPanelHandlePointerEnd}
@@ -1336,156 +1734,8 @@ export default function CoursesPage() {
               >
                 <span className="h-2 w-14 rounded-full bg-gradient-to-r from-slate-300 via-slate-200 to-slate-300" />
               </button>
-
-              <div
-                ref={panelContentRef}
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(env(safe-area-inset-bottom),12px)] touch-pan-y [-webkit-overflow-scrolling:touch]"
-                style={{
-                  WebkitOverflowScrolling: 'touch',
-                  overscrollBehaviorY: 'contain',
-                }}
-              >
-                <div className="mb-3 space-y-2">
-                  {starterCourse ? (
-                    <button
-                      type="button"
-                      className="w-full rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-left"
-                      onClick={() => {
-                        setIsNearbyCourseMarkerVisible(true);
-                        setSelectionSource('recommended');
-                        setSelectedCourseId(starterCourse.id);
-                        setPanelHeight(getPanelSnapHeights().mid);
-                      }}
-                    >
-                      <p className="text-[11px] font-semibold text-emerald-700">
-                        {isEnglish ? 'Recommended first collect' : '첫 수집 추천 코스'}
-                      </p>
-                      <p className="mt-1 truncate text-xs font-medium text-slate-900">{starterCourse.title}</p>
-                      <p className="mt-1 text-[11px] text-slate-600">
-                        {starterCourse.totalDistance.toFixed(1)}km · {difficultyLabel(starterCourse.difficulty)}
-                      </p>
-                    </button>
-                  ) : null}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{isEnglish ? 'Course List' : '코스 목록'}</p>
-                      <p className="truncate text-xs text-slate-500">{courses?.courses.length ?? 0}{isEnglish ? ' courses' : '개 코스'}</p>
-                    </div>
-                  </div>
-                  <select
-                    value={listSort}
-                    onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
-                    className="rg-touch h-11 w-full rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
-                  >
-                    <option value="LATEST">{isEnglish ? 'Latest' : '최신순'}</option>
-                    <option value="LIKES_DESC">{isEnglish ? 'Most Liked' : '좋아요 많은순'}</option>
-                    <option value="NEAREST">{isEnglish ? 'Nearest (My Location)' : '가까운순(내 위치)'}</option>
-                    <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
-                    <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
-                  </select>
-                  {canRenderMapPanelAd ? (
-                    <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
-                  ) : null}
-                </div>
-
-                {locationError && listSort === 'NEAREST' && (
-                  <p className="mb-2 text-xs text-slate-500">{locationError}</p>
-                )}
-
-                {isNearbyError && (
-                  <div className="mb-2 rounded-2xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
-                    {isEnglish ? 'Failed to load nearby courses.' : '주변 코스를 불러오지 못했습니다.'}
-                    <button
-                      type="button"
-                      className="ml-2 font-semibold underline underline-offset-2"
-                      onClick={() => refetchNearby()}
-                    >
-                      {isEnglish ? 'Retry' : '다시 시도'}
-                    </button>
-                  </div>
-                )}
-
-                {isLoading ? (
-                  <div className="space-y-3 pt-1">
-                    {Array.from({ length: 4 }).map((_, index) => (
-                      <Card key={index} className="rounded-2xl border border-white/70 bg-white/80">
-                        <CardContent className="p-3">
-                          <Skeleton className="h-20 w-full rounded-xl" />
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                ) : isError ? (
-                  <ErrorState
-                    title={isEnglish ? 'Failed to load courses' : '코스를 불러오지 못했습니다'}
-                    message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
-                    actionLabel={isEnglish ? 'Retry' : '다시 시도'}
-                    onAction={() => refetch()}
-                  />
-                ) : !courses?.courses || courses.courses.length === 0 ? (
-                  <div className="py-12 text-center text-sm text-slate-500">{isEnglish ? 'No courses available.' : '등록된 코스가 없습니다'}</div>
-                ) : (
-                  <div className="rg-stagger space-y-3 pb-2">
-                    {courses.courses.map((course, index) => (
-                      <div key={course.id} className="space-y-3">
-                        <button
-                          type="button"
-                          className="w-full text-left"
-                          onClick={() => {
-                            setIsNearbyCourseMarkerVisible(true);
-                            setSelectionSource('list');
-                            setSelectedCourseId((current) => (current === course.id ? null : course.id));
-                          }}
-                        >
-                          <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${selectedCourseId === course.id ? 'rg-selected border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
-                            <CardContent className="p-3">
-                              <div className="flex gap-3">
-                                <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
-                                  <Image
-                                    src={(() => {
-                                      const raw = Array.isArray(course.waypoints)
-                                        ? (course.waypoints as { lat: number; lng: number }[])
-                                        : [];
-                                      return getCompactPreviewImageUrl(raw, { lat: course.centerLat, lng: course.centerLng });
-                                    })()}
-                                    alt={isEnglish ? `${course.title} map` : `${course.title} 지도`}
-                                    fill
-                                    sizes="120px"
-                                    quality={70}
-                                    unoptimized
-                                    className="object-cover"
-                                  />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <h3 className="truncate text-sm font-semibold text-slate-900">{course.title}</h3>
-                                  <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
-                                    <MapPin className="h-3.5 w-3.5" />
-                                    <span>{course.totalDistance.toFixed(1)}km</span>
-                                    <span>•</span>
-                                    <span>{course.estimatedTime}{isEnglish ? ' min' : '분'}</span>
-                                  </div>
-                                  <p className="mt-1 text-xs text-slate-500">{isEnglish ? 'From my location' : '내 위치에서'} {getDistanceLabel(course.centerLat, course.centerLng)}</p>
-                                  <div className="mt-2 flex items-center gap-2">
-                                    <Badge className={`${difficultyColors[course.difficulty]} rounded-full text-[11px]`}>
-                                      {difficultyLabel(course.difficulty)}
-                                    </Badge>
-                                    <div className="flex items-center gap-1 text-xs text-slate-600">
-                                      <Heart className="h-3.5 w-3.5" />
-                                      <span>{course.likeCount}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </button>
-                        {index === 5 && canRenderMapPanelAd ? (
-                          <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {panelScrollableContent}
               </div>
             </section>
           </div>

@@ -1,26 +1,10 @@
-import { createTRPCRouter, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 
-const getOrCreateGuestUserId = async (userId: string | null) => {
-  if (userId) return userId;
-  const guest = await prisma.user.upsert({
-    where: { providerId: 'guest' },
-    update: {},
-    create: {
-      email: 'guest@running-go.local',
-      name: '게스트',
-      image: null,
-      provider: 'guest',
-      providerId: 'guest',
-    },
-  });
-  return guest.id;
-};
-
 export const homeRouter = createTRPCRouter({
-  summary: publicProcedure
+  summary: protectedProcedure
     .query(async ({ ctx }) => {
-      const userId = await getOrCreateGuestUserId(ctx.userId);
+      const userId = ctx.userId;
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 

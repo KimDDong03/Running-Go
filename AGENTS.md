@@ -27,7 +27,7 @@ Keep changes small, follow local patterns, and verify behavior before finishing.
 - Optional typecheck: `npx tsc --noEmit`
 - Seed DB data: `npm run seed`
 - Generate rankings: `npm run rankings`
-- Maintenance: `npm run prune:run-paths`, `npm run prune:guest`, `npm run billing:sync-expiry`
+- Maintenance: `npm run prune:run-paths`, `npm run prune:guest`
 
 ## Tests and single-test execution
 
@@ -62,9 +62,7 @@ Keep changes small, follow local patterns, and verify behavior before finishing.
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`
-- `NEXT_PUBLIC_TOSS_CLIENT_KEY` (optional in some flows)
-- `TOSS_SECRET_KEY` (server-side billing flow)
-- `BILLING_WEBHOOK_SECRET` (webhook signature validation)
+- Billing-related Prisma models exist, but active billing API routes/scripts are not currently wired in this repo.
 
 ## TypeScript and formatting
 
@@ -103,13 +101,13 @@ Keep changes small, follow local patterns, and verify behavior before finishing.
 - Build routers with `createTRPCRouter` and procedures with `publicProcedure` / `protectedProcedure`.
 - Validate all procedure inputs with `zod` before DB access.
 - Keep Prisma access inside server modules and routers.
-- Follow existing guest fallback pattern where used (upsert/find guest user when session is absent).
+- User-scoped APIs should use `protectedProcedure` (login required).
 
 ## Prisma and data conventions
 
 - Prisma client wrapper: `@/lib/prisma`.
 - Use explicit DTO-like return objects from routers when client shape should be stable.
-- Keep schema changes small and deliberate; schema updates can affect billing/auth/ranking flows.
+- Keep schema changes small and deliberate; schema updates can affect auth/ranking/data flows.
 - Do not leak internal-only fields to the client by default.
 
 ## Auth conventions
@@ -135,9 +133,9 @@ Keep changes small, follow local patterns, and verify behavior before finishing.
 ## Files to sample before coding
 
 - Server base patterns: `src/server/trpc.ts`, `src/server/root.ts`
-- Router style: `src/server/routers/course.ts`, `src/server/routers/billing.ts`
+- Router style: `src/server/routers/course.ts`, `src/server/routers/collection.ts`
 - App page style: `src/app/courses/page.tsx`, `src/app/courses/[id]/page.tsx`
-- Route handler style: `src/app/api/billing/webhook/route.ts`
+- Route handler style: `src/app/api/trpc/[trpc]/route.ts`
 - UI primitive style: `components/ui/button.tsx`, `components/ui/card.tsx`
 
 ## Safe change checklist

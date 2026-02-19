@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createTRPCRouter, protectedProcedure, publicProcedure } from '../trpc';
+import { createTRPCRouter, protectedProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 import { filterLowAccuracyPoints, validateCollection } from '@/lib/path-matching';
 
@@ -16,8 +16,34 @@ const CourseWaypointSchema = z.object({
   order: z.number(),
 });
 
+const sampleWaypoints = (value: unknown, maxPoints: number = 80) => {
+  if (!Array.isArray(value)) return [];
+  const points = value
+    .map((point) => {
+      if (!point || typeof point !== 'object') return null;
+      const lat = (point as { lat?: unknown }).lat;
+      const lng = (point as { lng?: unknown }).lng;
+      const order = (point as { order?: unknown }).order;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+      return { lat, lng, order: typeof order === 'number' ? order : 0 };
+    })
+    .filter((point): point is { lat: number; lng: number; order: number } => Boolean(point))
+    .sort((a, b) => a.order - b.order);
+
+  if (points.length <= maxPoints) return points;
+  const step = Math.ceil(points.length / maxPoints);
+  const sampled: { lat: number; lng: number; order: number }[] = [];
+  for (let i = 0; i < points.length; i += step) {
+    sampled.push(points[i]);
+  }
+  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+    sampled.push(points[points.length - 1]);
+  }
+  return sampled;
+};
+
 export const collectionRouter = createTRPCRouter({
-  listByUser: publicProcedure
+  listByUser: protectedProcedure
     .input(
       z.object({
         limit: z.number().min(1).max(50).default(20),
@@ -25,18 +51,7 @@ export const collectionRouter = createTRPCRouter({
       }).optional()
     )
     .query(async ({ input, ctx }) => {
-      const userId = ctx.userId
-        ?? (await prisma.user.upsert({
-          where: { providerId: 'guest' },
-          update: {},
-          create: {
-            email: 'guest@running-go.local',
-            name: '게스트',
-            image: null,
-            provider: 'guest',
-            providerId: 'guest',
-          },
-        })).id;
+      const userId = ctx.userId;
       const limit = input?.limit ?? 20;
       const cursor = input?.cursor;
       const collections = await prisma.collection.findMany({
@@ -48,7 +63,18 @@ export const collectionRouter = createTRPCRouter({
         },
         orderBy: { lastAt: 'desc' },
         include: {
-          course: true,
+          course: {
+            select: {
+              id: true,
+              title: true,
+              thumbnailUrl: true,
+              waypoints: true,
+              centerLat: true,
+              centerLng: true,
+              totalDistance: true,
+              difficulty: true,
+            },
+          },
         },
       });
 
@@ -66,7 +92,7 @@ export const collectionRouter = createTRPCRouter({
             id: collection.course.id,
             title: collection.course.title,
             thumbnailUrl: collection.course.thumbnailUrl,
-            waypoints: collection.course.waypoints,
+            waypoints: sampleWaypoints(collection.course.waypoints),
             centerLat: collection.course.centerLat,
             centerLng: collection.course.centerLng,
             totalDistance: collection.course.totalDistance,
@@ -78,21 +104,10 @@ export const collectionRouter = createTRPCRouter({
       };
     }),
 
-  historyByCourse: publicProcedure
+  historyByCourse: protectedProcedure
     .input(z.object({ courseId: z.string(), limit: z.number().min(1).max(100).default(30) }))
     .query(async ({ input, ctx }) => {
-      const userId = ctx.userId
-        ?? (await prisma.user.upsert({
-          where: { providerId: 'guest' },
-          update: {},
-          create: {
-            email: 'guest@running-go.local',
-            name: '게스트',
-            image: null,
-            provider: 'guest',
-            providerId: 'guest',
-          },
-        })).id;
+      const userId = ctx.userId;
 
       const sessions = await prisma.runSession.findMany({
         where: {

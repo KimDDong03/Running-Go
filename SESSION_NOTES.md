@@ -5,15 +5,15 @@ Use this file to resume work in a fresh session.
 ## Project Snapshot
 
 - Framework: Next.js App Router + React 19 + TypeScript
-- API: tRPC + Prisma + NextAuth (guest fallback enabled)
+- API: tRPC + Prisma + NextAuth (login required for user-scoped APIs)
 - Styling: Tailwind + shadcn/ui
-- Maps: Mapbox static images (path overlay)
+- Maps: provider SDK + client-generated preview images
 
 ## Key Decisions Already Implemented
 
 - **Matching algorithm**: P90 distance + coverage score with thresholds in `src/lib/path-matching.ts`
 - **Collection rules**: creator runs do NOT count as collection; reason returned
-- **Guest mode**: main flows are public; guest user auto-created
+- **Access mode**: user-scoped flows require authentication (no guest auto-create)
 - **Home data**: `home.summary` provides stats + recommended/popular with waypoints for map previews
 - **Map previews**: explore list + home use static map path overlay; padding=60; quality=70
 - **UI**: glassmorphism theme; skeletons are neutral gray (no orange flash)
@@ -33,12 +33,10 @@ Use this file to resume work in a fresh session.
 ## Maintenance Scripts
 
 - `npm run prune:run-paths` (clear run paths older than 6 months)
-- `npm run prune:guest` (clear guest data older than 90 days)
-
 ## Recent UX Fixes
 
 - Removed global loading overlay to avoid double-loading
-- Course detail now uses static map image (no Mapbox GL)
+- Course detail uses provider SDK map
 - Skeletons no longer use accent color
 
 ## What Needs Restart
@@ -49,7 +47,7 @@ Use this file to resume work in a fresh session.
 ## Known Issues / Things to Watch
 
 - If orange flash appears, it was previously from skeleton accent color (now fixed)
-- Home uses static map images; ensure `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` set
+- User-scoped pages now require authentication
 
 ## Commands
 

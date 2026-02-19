@@ -29,6 +29,32 @@ const CourseListSortSchema = z.enum([
   'COURSE_DISTANCE_DESC',
 ]);
 
+const sampleWaypoints = (value: unknown, maxPoints: number = 80) => {
+  if (!Array.isArray(value)) return [];
+  const points = value
+    .map((point) => {
+      if (!point || typeof point !== 'object') return null;
+      const lat = (point as { lat?: unknown }).lat;
+      const lng = (point as { lng?: unknown }).lng;
+      const order = (point as { order?: unknown }).order;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+      return { lat, lng, order: typeof order === 'number' ? order : 0 };
+    })
+    .filter((point): point is { lat: number; lng: number; order: number } => Boolean(point))
+    .sort((a, b) => a.order - b.order);
+
+  if (points.length <= maxPoints) return points;
+  const step = Math.ceil(points.length / maxPoints);
+  const sampled: { lat: number; lng: number; order: number }[] = [];
+  for (let i = 0; i < points.length; i += step) {
+    sampled.push(points[i]);
+  }
+  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+    sampled.push(points[points.length - 1]);
+  }
+  return sampled;
+};
+
 export const courseRouter = createTRPCRouter({
   // List courses with pagination and filters
   list: publicProcedure
@@ -382,7 +408,7 @@ export const courseRouter = createTRPCRouter({
     }),
 
   // Update course (description only)
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -394,8 +420,22 @@ export const courseRouter = createTRPCRouter({
         }),
       })
     )
-    .mutation(async ({ input }) => {
-      // TODO: Check if user owns the course
+    .mutation(async ({ input, ctx }) => {
+      const courseBeforeUpdate = await prisma.course.findUnique({
+        where: { id: input.id },
+        select: {
+          creatorId: true,
+          status: true,
+        },
+      });
+
+      if (!courseBeforeUpdate || courseBeforeUpdate.status === 'DELETED') {
+        throw new TRPCError({ code: 'NOT_FOUND', message: '코스를 찾을 수 없습니다' });
+      }
+
+      if (courseBeforeUpdate.creatorId !== ctx.userId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: '내가 만든 코스만 수정할 수 있습니다' });
+      }
 
       const course = await prisma.course.update({
         where: { id: input.id },
@@ -422,7 +462,17 @@ export const courseRouter = createTRPCRouter({
           status: { not: 'DELETED' },
         },
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          totalDistance: true,
+          difficulty: true,
+          centerLat: true,
+          centerLng: true,
+          waypoints: true,
+          thumbnailUrl: true,
+          status: true,
+          createdAt: true,
           _count: {
             select: { likes: true },
           },
@@ -437,7 +487,16 @@ export const courseRouter = createTRPCRouter({
 
       return {
         courses: courses.map((course) => ({
-          ...course,
+          id: course.id,
+          title: course.title,
+          totalDistance: course.totalDistance,
+          difficulty: course.difficulty,
+          centerLat: course.centerLat,
+          centerLng: course.centerLng,
+          waypoints: sampleWaypoints(course.waypoints),
+          thumbnailUrl: course.thumbnailUrl,
+          status: course.status,
+          createdAt: course.createdAt,
           likeCount: course._count.likes,
         })),
         nextCursor,
@@ -478,7 +537,7 @@ export const courseRouter = createTRPCRouter({
           difficulty: course.difficulty,
           centerLat: course.centerLat,
           centerLng: course.centerLng,
-          waypoints: course.waypoints,
+          waypoints: sampleWaypoints(course.waypoints),
           thumbnailUrl: course.thumbnailUrl,
           likeCount: course._count.likes,
           creatorName: course.creator.name,

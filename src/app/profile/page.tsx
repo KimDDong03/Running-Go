@@ -25,8 +25,10 @@ import { User } from 'lucide-react';
 
 export default function ProfilePage() {
   const { locale } = useLocale();
-  const { data: session } = useSession();
-  const { data, isLoading, isError, refetch } = trpc.profile.summary.useQuery();
+  const { data: session, status: sessionStatus } = useSession();
+  const { data, isLoading, isError, refetch } = trpc.profile.summary.useQuery(undefined, {
+    enabled: sessionStatus === 'authenticated',
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isAvatarProcessing, setIsAvatarProcessing] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState('');
@@ -155,16 +157,23 @@ export default function ProfilePage() {
   return (
     <div className="rg-page">
       <main className="rg-page-main rg-stagger p-4 pt-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] space-y-4">
-        {isError && (
+        {sessionStatus !== 'authenticated' ? (
+          <ErrorState
+            title={isEnglish ? 'Sign-in required' : '로그인이 필요합니다'}
+            message={isEnglish ? 'Please sign in to view your profile.' : '프로필을 보려면 로그인해 주세요'}
+            actionLabel={isEnglish ? 'Sign in' : '로그인'}
+            onAction={() => {
+              window.location.href = '/login';
+            }}
+          />
+        ) : isError ? (
           <ErrorState
             title={isEnglish ? 'Failed to load profile' : '프로필을 불러오지 못했습니다'}
             message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
             actionLabel={isEnglish ? 'Retry' : '다시 시도'}
             onAction={() => refetch()}
           />
-        )}
-
-        {!isError && (
+        ) : (
           <Card className="rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)]">
             <CardContent className="p-6 space-y-3">
               <div className="text-sm text-slate-500">{isEnglish ? 'Current account' : '현재 계정'}</div>

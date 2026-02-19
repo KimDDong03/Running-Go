@@ -13,16 +13,19 @@ import { useLocale } from '@/app/components/providers/LocaleProvider';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
 import { getCoursePreviewImageUrl } from '@/lib/course-preview-image';
 
-const tabIds = ['popular', 'collector', 'creator'] as const;
-const periodIds = ['WEEKLY', 'MONTHLY', 'ALL_TIME'] as const;
+type RankingTabId = 'popular' | 'collector' | 'creator';
+type RankingPeriodId = 'WEEKLY' | 'MONTHLY' | 'ALL_TIME';
 
 export default function RankingsPage() {
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
-  const [activeTab, setActiveTab] = useState<(typeof tabIds)[number]>('popular');
-  const [period, setPeriod] = useState<(typeof periodIds)[number]>('ALL_TIME');
+  const [activeTab, setActiveTab] = useState<RankingTabId>('popular');
+  const [period, setPeriod] = useState<RankingPeriodId>('ALL_TIME');
   const [selectedCreator, setSelectedCreator] = useState<{ userId: string; name: string | null } | null>(null);
-  const { data, isError, refetch } = trpc.ranking.list.useQuery({ period });
+  const { data, isError, isLoading, refetch } = trpc.ranking.list.useQuery(
+    { period },
+    { placeholderData: (previousData) => previousData }
+  );
   const { data: creatorCoursesData } = trpc.course.listByCreator.useQuery(
     { creatorId: selectedCreator?.userId ?? '', limit: 50 },
     { enabled: Boolean(selectedCreator?.userId) }
@@ -113,6 +116,10 @@ export default function RankingsPage() {
             onAction={() => refetch()}
           />
         )}
+
+        {!isError && isLoading && !data ? (
+          <div className="text-center text-slate-500 py-12">{isEnglish ? 'Loading ranking...' : '랭킹 불러오는 중...'}</div>
+        ) : null}
 
         {!isError && activeTab === 'popular' && (
           <div className="rg-stagger space-y-4 pb-1">

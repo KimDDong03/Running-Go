@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
@@ -93,7 +93,9 @@ function RunPageContent() {
   const collectMutation = trpc.collection.collect.useMutation();
   const freeRunMutation = trpc.runSession.createFreeRun.useMutation();
   const { data: course } = trpc.course.byId.useQuery({ id: courseId ?? '' }, { enabled: Boolean(courseId) });
-  const { data: profileSummary } = trpc.profile.summary.useQuery();
+  const { data: profileSummary } = trpc.profile.summary.useQuery(undefined, {
+    enabled: sessionStatus === 'authenticated',
+  });
 
   useEffect(() => {
     if (hasTrackedRunViewedRef.current) return;
@@ -157,13 +159,13 @@ function RunPageContent() {
     return R * c;
   };
 
-  const toLatLng = useMemo(() => (lat: number, lng: number) => {
+  const toLatLng = useCallback((lat: number, lng: number) => {
     const sdk = mapSdkRef.current;
     if (!sdk) return null;
     return new sdk.LatLng(lat, lng);
   }, []);
 
-  const updateCurrentMarker = useMemo(() => (latitude: number, longitude: number) => {
+  const updateCurrentMarker = useCallback((latitude: number, longitude: number) => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     const position = toLatLng(latitude, longitude);
@@ -192,7 +194,7 @@ function RunPageContent() {
     }
   }, [profileSummary?.user.image, toLatLng]);
 
-  const fitMapToCourse = useMemo(() => (points: { lat: number; lng: number }[]) => {
+  const fitMapToCourse = useCallback((points: { lat: number; lng: number }[]) => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!sdk || !mapInstance || points.length < 2) return;
@@ -217,14 +219,14 @@ function RunPageContent() {
     }
   };
 
-  const clearRunPath = useMemo(() => () => {
+  const clearRunPath = useCallback(() => {
     runPathOutlineRef.current?.setMap(null);
     runPathMainRef.current?.setMap(null);
     runPathOutlineRef.current = null;
     runPathMainRef.current = null;
   }, []);
 
-  const clearCoursePath = useMemo(() => () => {
+  const clearCoursePath = useCallback(() => {
     coursePathOutlineRef.current?.setMap(null);
     coursePathMainRef.current?.setMap(null);
     coursePathOutlineRef.current = null;
@@ -270,7 +272,7 @@ function RunPageContent() {
     }
   };
 
-  const updateCourseLine = useMemo(() => (points: { lat: number; lng: number }[]) => {
+  const updateCourseLine = useCallback((points: { lat: number; lng: number }[]) => {
     const sdk = mapSdkRef.current;
     const mapInstance = map.current;
     if (!sdk || !mapInstance || points.length < 2) {
