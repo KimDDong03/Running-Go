@@ -580,8 +580,18 @@ export default function CoursesPage() {
 
   const selectedWaypointList = useMemo(() => {
     if (!selectedCourseId) return [] as { lat: number; lng: number }[];
-    if (!selectedCourse || !Array.isArray(selectedCourse.waypoints)) return [] as { lat: number; lng: number }[];
-    const raw = selectedCourse.waypoints
+    const fallbackCourseFromList = courses?.courses.find((course) => course.id === selectedCourseId) ?? null;
+    const waypointSource = Array.isArray(selectedCourse?.waypoints)
+      ? selectedCourse.waypoints
+      : Array.isArray(fallbackCourseFromList?.waypoints)
+        ? fallbackCourseFromList.waypoints
+        : [];
+
+    if (!Array.isArray(waypointSource) || waypointSource.length === 0) {
+      return [] as { lat: number; lng: number }[];
+    }
+
+    const raw = waypointSource
       .map((point) => {
         if (!point || typeof point !== 'object') return null;
 
@@ -589,18 +599,18 @@ export default function CoursesPage() {
         const lng = (point as { lng?: unknown }).lng;
         const order = (point as { order?: unknown }).order;
 
-        if (typeof lat !== 'number' || typeof lng !== 'number' || typeof order !== 'number') {
+        if (typeof lat !== 'number' || typeof lng !== 'number') {
           return null;
         }
 
-        return { lat, lng, order } as CourseWaypoint;
+        return { lat, lng, order: typeof order === 'number' ? order : 0 } as CourseWaypoint;
       })
       .filter((point): point is CourseWaypoint => Boolean(point));
 
     return [...raw]
       .sort((a, b) => a.order - b.order)
       .map((point) => ({ lat: point.lat, lng: point.lng }));
-  }, [selectedCourse, selectedCourseId]);
+  }, [courses?.courses, selectedCourse, selectedCourseId]);
 
   const starterCourse = useMemo(() => {
     const items = courses?.courses ?? [];
@@ -1402,9 +1412,10 @@ export default function CoursesPage() {
   const handleMapListCourseSelect = useCallback((courseId: string, centerLat: number, centerLng: number) => {
     setIsNearbyCourseMarkerVisible(true);
     setSelectionSource('list');
+    lastListAutoFitCourseIdRef.current = null;
     focusMapOnCourse(centerLat, centerLng);
     syncMarkerViewport({ lat: centerLat, lng: centerLng });
-    setSelectedCourseId((current) => (current === courseId ? null : courseId));
+    setSelectedCourseId(courseId);
     panelContentRef.current?.scrollTo({ top: 0, behavior: 'auto' });
     collapsePanelToMin();
   }, [collapsePanelToMin, focusMapOnCourse, syncMarkerViewport]);
