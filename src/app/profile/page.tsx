@@ -181,17 +181,17 @@ export default function ProfilePage() {
                 {isLoading ? (isEnglish ? 'Loading...' : '불러오는 중...') : data?.user.name}
               </div>
               {!data?.user.isGuest && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     value={nicknameDraft}
                     onChange={(event) => setNicknameDraft(event.target.value)}
                     placeholder={isEnglish ? 'Set nickname' : '닉네임 설정'}
-                    className="h-10 flex-1 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                    className="h-10 w-full min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                   />
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rg-touch rg-press rounded-full"
+                    className="rg-touch rg-press w-full rounded-full sm:w-auto sm:shrink-0"
                     disabled={
                       updateNickname.isPending
                       || nicknameDraft.trim().length < 2
@@ -218,7 +218,7 @@ export default function ProfilePage() {
                     </div>
                   )}
                 </div>
-                <div className="flex flex-1 items-center gap-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -229,7 +229,7 @@ export default function ProfilePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rg-touch rg-press rounded-full"
+                    className="rg-touch rg-press w-full rounded-full sm:w-auto"
                     disabled={isAvatarProcessing || updateAvatar.isPending}
                     onClick={() => fileInputRef.current?.click()}
                   >
@@ -238,7 +238,7 @@ export default function ProfilePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rg-touch rg-press rounded-full"
+                    className="rg-touch rg-press w-full rounded-full sm:w-auto"
                     disabled={isAvatarProcessing || updateAvatar.isPending || !data?.user.image}
                     onClick={() => {
                       void updateAvatar.mutateAsync({ image: null });
