@@ -579,18 +579,10 @@ export default function CoursesPage() {
   const { data: profileSummary } = trpc.profile.summary.useQuery(undefined, {
     enabled: sessionStatus === 'authenticated',
   });
-  const { data: likedCoursesData } = trpc.like.listByUser.useQuery(
-    { limit: 200 },
-    { enabled: sessionStatus === 'authenticated' }
-  );
   const toggleLikeMutation = trpc.like.toggle.useMutation();
   useEffect(() => {
     profileImageRef.current = profileSummary?.user.image ?? null;
   }, [profileSummary?.user.image]);
-
-  const likedCourseIds = useMemo(() => {
-    return new Set((likedCoursesData?.likes ?? []).map((like) => like.course.id));
-  }, [likedCoursesData?.likes]);
 
   const getLikeState = useCallback((courseId: string, fallbackLikeCount: number) => {
     const overridden = likeOverrides[courseId];
@@ -598,11 +590,26 @@ export default function CoursesPage() {
       return overridden;
     }
 
+    const fromCourseList = courses?.courses.find((course) => course.id === courseId);
+    if (fromCourseList) {
+      return {
+        isLiked: Boolean(fromCourseList.isLiked),
+        likeCount: fromCourseList.likeCount,
+      };
+    }
+
+    if (selectedCourse?.id === courseId) {
+      return {
+        isLiked: Boolean(selectedCourse.isLiked),
+        likeCount: selectedCourse.likeCount,
+      };
+    }
+
     return {
-      isLiked: likedCourseIds.has(courseId),
+      isLiked: false,
       likeCount: fallbackLikeCount,
     };
-  }, [likeOverrides, likedCourseIds]);
+  }, [courses?.courses, likeOverrides, selectedCourse]);
 
   const handleToggleLike = useCallback((courseId: string, fallbackLikeCount: number) => {
     if (sessionStatus !== 'authenticated') {
@@ -1324,6 +1331,7 @@ export default function CoursesPage() {
         estimatedTime: selectedCourseFromList.estimatedTime,
         difficulty: selectedCourseFromList.difficulty,
         distanceFromUserKm: 0,
+        isLiked: selectedCourseFromList.isLiked,
       });
     }
 
@@ -1337,11 +1345,12 @@ export default function CoursesPage() {
         estimatedTime: selectedCourse.estimatedTime,
         difficulty: selectedCourse.difficulty,
         distanceFromUserKm: 0,
+        isLiked: selectedCourse.isLiked,
       });
     }
 
     markerCourses.forEach((course) => {
-      const courseIsLiked = getLikeState(course.id, 0).isLiked;
+      const courseIsLiked = Boolean(course.isLiked) || getLikeState(course.id, 0).isLiked;
       const markerButton = document.createElement('button');
       markerButton.type = 'button';
       markerButton.className = [
@@ -1377,11 +1386,14 @@ export default function CoursesPage() {
 
     const sdk = mapSdkRef.current;
     const mapInstance = mapRef.current;
-    const selectedPathColors = selectedCourse
-      && getLikeState(selectedCourse.id, selectedCourse.likeCount).isLiked
+    const selectedCourseForPath = selectedCourse
+      ?? courses?.courses.find((course) => course.id === selectedCourseId)
+      ?? null;
+    const selectedPathColors = selectedCourseForPath
+      && getLikeState(selectedCourseForPath.id, selectedCourseForPath.likeCount).isLiked
       ? { outline: '#ffb020', main: '#ff5a36' }
       : { outline: '#0f5fd7', main: '#1d8fff' };
-    if (!selectedCourseId || !selectedCourse || selectedWaypointList.length < 2) {
+    if (!selectedCourseId || !selectedCourseForPath || selectedWaypointList.length < 2) {
       clearSelectedPath();
       return;
     }
@@ -1418,7 +1430,7 @@ export default function CoursesPage() {
       });
     }
 
-  }, [getLikeState, selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
+  }, [courses?.courses, getLikeState, selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
 
   useEffect(() => {
     if (viewMode !== 'map' || selectionSource !== 'list') return;

@@ -75,7 +75,7 @@ export const courseRouter = createTRPCRouter({
         }).optional(),
       }).optional()
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const limit = input?.limit ?? 20;
       const cursor = input?.cursor;
       const filters = input?.filters;
@@ -119,6 +119,11 @@ export const courseRouter = createTRPCRouter({
             _count: {
               select: { likes: true, collections: true },
             },
+            likes: {
+              where: { userId: ctx.userId ?? '' },
+              select: { id: true },
+              take: 1,
+            },
           },
         });
 
@@ -147,6 +152,7 @@ export const courseRouter = createTRPCRouter({
             waypoints: course.waypoints,
             tags: course.tags,
             likeCount: course._count.likes,
+            isLiked: course.likes.length > 0,
             collectCount: course._count.collections,
             creatorId: course.creatorId,
             createdAt: course.createdAt,
@@ -177,6 +183,11 @@ export const courseRouter = createTRPCRouter({
           _count: {
             select: { likes: true, collections: true },
           },
+          likes: {
+            where: { userId: ctx.userId ?? '' },
+            select: { id: true },
+            take: 1,
+          },
         },
       });
 
@@ -200,6 +211,7 @@ export const courseRouter = createTRPCRouter({
         waypoints: course.waypoints,
         tags: course.tags,
         likeCount: course._count.likes,
+        isLiked: course.likes.length > 0,
         collectCount: course._count.collections,
         creatorId: course.creatorId,
         createdAt: course.createdAt,
@@ -220,7 +232,7 @@ export const courseRouter = createTRPCRouter({
         limit: z.number().min(1).max(50).default(30),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const latDelta = input.radiusKm / 111;
       const longitudeScale = Math.cos((input.lat * Math.PI) / 180);
       const lngDelta = input.radiusKm / Math.max(0.1, 111 * Math.abs(longitudeScale));
@@ -240,6 +252,13 @@ export const courseRouter = createTRPCRouter({
         },
         take: input.limit,
         orderBy: { createdAt: 'desc' },
+        include: {
+          likes: {
+            where: { userId: ctx.userId ?? '' },
+            select: { id: true },
+            take: 1,
+          },
+        },
       });
 
       const toRadians = (value: number) => (value * Math.PI) / 180;
@@ -275,6 +294,7 @@ export const courseRouter = createTRPCRouter({
             estimatedTime: course.estimatedTime,
             difficulty: course.difficulty,
             distanceFromUserKm,
+            isLiked: course.likes.length > 0,
           };
         })
         .filter((course) => course.distanceFromUserKm <= input.radiusKm)
@@ -292,6 +312,11 @@ export const courseRouter = createTRPCRouter({
         include: {
           _count: {
             select: { likes: true, collections: true },
+          },
+          likes: {
+            where: { userId: ctx.userId ?? '' },
+            select: { id: true },
+            take: 1,
           },
         },
       });
@@ -324,6 +349,7 @@ export const courseRouter = createTRPCRouter({
         tags: course.tags,
         isPublic: course.isPublic,
         likeCount: course._count.likes,
+        isLiked: course.likes.length > 0,
         collectCount: course._count.collections,
         creatorId: course.creatorId,
         creator: {
