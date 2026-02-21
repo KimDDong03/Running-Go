@@ -1,8 +1,9 @@
 'use client';
 
-import { Suspense, useEffect } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { trpc } from '@/components/providers/TRPCProvider';
@@ -19,6 +20,7 @@ function RunResultPageContent() {
   const reason = params.get('reason');
   const courseId = params.get('courseId');
   const runSessionId = params.get('runSessionId');
+  const [isSharing, setIsSharing] = useState(false);
   const { data: runSession, isError, error } = trpc.runSession.byId.useQuery(
     { id: runSessionId ?? '' },
     { enabled: Boolean(runSessionId) }
@@ -39,6 +41,86 @@ function RunResultPageContent() {
     : (runSession?.pace ?? 0) <= 5.5
       ? (isEnglish ? 'Pace maintenance intervals' : '페이스 유지 인터벌')
       : (isEnglish ? 'Endurance long run' : '지구력 강화 롱런');
+  const shareUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const base = window.location.origin;
+    return courseId ? `${base}/?focusCourseId=${courseId}` : `${base}/`;
+  }, [courseId]);
+  const shareText = useMemo(() => {
+    const titleLine = isCollected
+      ? (isEnglish ? 'I collected a Running Go course!' : '러닝고 코스 수집 성공!')
+      : (isEnglish ? 'I just finished a run on Running Go!' : '러닝고에서 러닝 완료!');
+    const metrics = runSession
+      ? (isEnglish
+        ? `Match ${numericMatchRate.toFixed(0)}% · ${runSession.distance.toFixed(2)}km · Pace ${runSession.pace.toFixed(2)}`
+        : `매칭률 ${numericMatchRate.toFixed(0)}% · ${runSession.distance.toFixed(2)}km · 페이스 ${runSession.pace.toFixed(2)}`)
+      : (isEnglish ? `Match ${numericMatchRate.toFixed(0)}%` : `매칭률 ${numericMatchRate.toFixed(0)}%`);
+    return `${titleLine}\n${metrics}\n#RunningGo #러닝고\n${shareUrl}`;
+  }, [isCollected, isEnglish, numericMatchRate, runSession, shareUrl]);
+
+  const handleSystemShare = async () => {
+    if (!shareUrl) return;
+    if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(shareText);
+        toast.success(isEnglish ? 'Share text copied.' : '공유 문구를 복사했습니다');
+        return;
+      }
+      toast.error(isEnglish ? 'Sharing is unavailable on this device.' : '이 기기에서는 공유 기능을 사용할 수 없습니다');
+      return;
+    }
+    try {
+      setIsSharing(true);
+      await navigator.share({
+        title: isEnglish ? 'Running Go Result' : '러닝고 결과',
+        text: shareText,
+        url: shareUrl,
+      });
+      trackEvent('run_result_shared', {
+        channel: 'system',
+        is_collected: isCollected,
+        course_id: courseId ?? 'none',
+      });
+    } catch {
+      // user cancellation or unsupported target
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleKakaoShare = async () => {
+    if (!shareUrl) return;
+    const kakaoUrl = `https://story.kakao.com/share?url=${encodeURIComponent(shareUrl)}`;
+    window.open(kakaoUrl, '_blank', 'noopener,noreferrer');
+    trackEvent('run_result_shared', {
+      channel: 'kakao',
+      is_collected: isCollected,
+      course_id: courseId ?? 'none',
+    });
+  };
+
+  const handleInstagramShare = async () => {
+    try {
+      if (!navigator.clipboard) {
+        toast.error(isEnglish ? 'Clipboard is unavailable.' : '클립보드 기능을 사용할 수 없습니다');
+        return;
+      }
+      await navigator.clipboard.writeText(shareText);
+      window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer');
+      toast.success(
+        isEnglish
+          ? 'Caption copied. Paste it on Instagram.'
+          : '문구를 복사했습니다. 인스타그램에 붙여넣어 공유하세요'
+      );
+      trackEvent('run_result_shared', {
+        channel: 'instagram_copy',
+        is_collected: isCollected,
+        course_id: courseId ?? 'none',
+      });
+    } catch {
+      toast.error(isEnglish ? 'Failed to prepare Instagram share.' : '인스타 공유 준비에 실패했습니다');
+    }
+  };
 
   useEffect(() => {
     if (!runSessionId && !courseId) return;
@@ -97,6 +179,7 @@ function RunResultPageContent() {
           )}
           <div className="flex flex-col gap-2">
             {isCollected && (
+              <>
                 <Button
                   size="lg"
                   className="rg-touch w-full rounded-2xl"
@@ -110,6 +193,40 @@ function RunResultPageContent() {
                 >
                 {isEnglish ? 'Open Collection' : '내 도감 보기'}
               </Button>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="rounded-2xl"
+                    onClick={() => {
+                      void handleSystemShare();
+                    }}
+                    disabled={isSharing}
+                  >
+                    {isEnglish ? 'Share' : '공유하기'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-2xl"
+                    onClick={() => {
+                      void handleKakaoShare();
+                    }}
+                  >
+                    {isEnglish ? 'Kakao' : '카카오 공유'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-2xl"
+                    onClick={() => {
+                      void handleInstagramShare();
+                    }}
+                  >
+                    {isEnglish ? 'Instagram' : '인스타 공유'}
+                  </Button>
+                </div>
+              </>
             )}
             {courseId && (
                 <Button

@@ -111,25 +111,21 @@ export const courseRouter = createTRPCRouter({
       };
 
       if (sortBy === 'NEAREST' && location) {
-        const candidates = await prisma.course.findMany({
+        const nearestCandidateTake = Math.min(500, Math.max(limit * 8, 120));
+        const candidateLocations = await prisma.course.findMany({
           where,
-          take: 500,
+          take: nearestCandidateTake,
           orderBy: { createdAt: 'desc' },
-          include: {
-            _count: {
-              select: { likes: true, collections: true },
-            },
-            likes: {
-              where: { userId: ctx.userId ?? '' },
-              select: { id: true },
-              take: 1,
-            },
+          select: {
+            id: true,
+            centerLat: true,
+            centerLng: true,
           },
         });
 
-        const courses = candidates
+        const nearestCandidates = candidateLocations
           .map((course) => ({
-            course,
+            courseId: course.id,
             distanceFromUserKm: computeDistanceKm(
               location.lat,
               location.lng,
@@ -138,8 +134,38 @@ export const courseRouter = createTRPCRouter({
             ),
           }))
           .sort((a, b) => a.distanceFromUserKm - b.distanceFromUserKm)
-          .slice(0, limit)
-          .map(({ course }) => ({
+          .slice(0, limit);
+
+        const nearestCourseIds = nearestCandidates.map(({ courseId }) => courseId);
+        const nearestCourses = nearestCourseIds.length > 0
+          ? await prisma.course.findMany({
+              where: { id: { in: nearestCourseIds } },
+              include: {
+                _count: {
+                  select: { likes: true, collections: true },
+                },
+              },
+            })
+          : [];
+        const nearestCourseById = new Map(nearestCourses.map((course) => [course.id, course]));
+        const likedCourseIdSet = ctx.userId && nearestCourseIds.length > 0
+          ? new Set(
+              (
+                await prisma.like.findMany({
+                  where: {
+                    userId: ctx.userId,
+                    courseId: { in: nearestCourseIds },
+                  },
+                  select: { courseId: true },
+                })
+              ).map((like) => like.courseId)
+            )
+          : new Set<string>();
+
+        const courses = nearestCandidates
+          .map(({ courseId }) => nearestCourseById.get(courseId))
+          .filter((course): course is NonNullable<typeof course> => Boolean(course))
+          .map((course) => ({
             id: course.id,
             title: course.title,
             description: course.description,
@@ -152,7 +178,7 @@ export const courseRouter = createTRPCRouter({
             waypoints: course.waypoints,
             tags: course.tags,
             likeCount: course._count.likes,
-            isLiked: course.likes.length > 0,
+            isLiked: likedCourseIdSet.has(course.id),
             collectCount: course._count.collections,
             creatorId: course.creatorId,
             createdAt: course.createdAt,
@@ -183,11 +209,6 @@ export const courseRouter = createTRPCRouter({
           _count: {
             select: { likes: true, collections: true },
           },
-          likes: {
-            where: { userId: ctx.userId ?? '' },
-            select: { id: true },
-            take: 1,
-          },
         },
       });
 
@@ -196,6 +217,21 @@ export const courseRouter = createTRPCRouter({
         const nextItem = courses.pop();
         nextCursor = nextItem?.id;
       }
+
+      const courseIds = courses.map((course) => course.id);
+      const likedCourseIdSet = ctx.userId && courseIds.length > 0
+        ? new Set(
+            (
+              await prisma.like.findMany({
+                where: {
+                  userId: ctx.userId,
+                  courseId: { in: courseIds },
+                },
+                select: { courseId: true },
+              })
+            ).map((like) => like.courseId)
+          )
+        : new Set<string>();
 
       // Simplified return to avoid complex type inference
       const courseList = courses.map((course) => ({
@@ -211,7 +247,7 @@ export const courseRouter = createTRPCRouter({
         waypoints: course.waypoints,
         tags: course.tags,
         likeCount: course._count.likes,
-        isLiked: course.likes.length > 0,
+        isLiked: likedCourseIdSet.has(course.id),
         collectCount: course._count.collections,
         creatorId: course.creatorId,
         createdAt: course.createdAt,
@@ -252,13 +288,6 @@ export const courseRouter = createTRPCRouter({
         },
         take: input.limit,
         orderBy: { createdAt: 'desc' },
-        include: {
-          likes: {
-            where: { userId: ctx.userId ?? '' },
-            select: { id: true },
-            take: 1,
-          },
-        },
       });
 
       const toRadians = (value: number) => (value * Math.PI) / 180;
@@ -275,6 +304,20 @@ export const courseRouter = createTRPCRouter({
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return earthRadius * c;
       };
+
+      const likedCandidateIdSet = ctx.userId && candidates.length > 0
+        ? new Set(
+            (
+              await prisma.like.findMany({
+                where: {
+                  userId: ctx.userId,
+                  courseId: { in: candidates.map((course) => course.id) },
+                },
+                select: { courseId: true },
+              })
+            ).map((like) => like.courseId)
+          )
+        : new Set<string>();
 
       const courses = candidates
         .map((course) => {
@@ -294,7 +337,7 @@ export const courseRouter = createTRPCRouter({
             estimatedTime: course.estimatedTime,
             difficulty: course.difficulty,
             distanceFromUserKm,
-            isLiked: course.likes.length > 0,
+            isLiked: likedCandidateIdSet.has(course.id),
           };
         })
         .filter((course) => course.distanceFromUserKm <= input.radiusKm)
@@ -313,11 +356,6 @@ export const courseRouter = createTRPCRouter({
           _count: {
             select: { likes: true, collections: true },
           },
-          likes: {
-            where: { userId: ctx.userId ?? '' },
-            select: { id: true },
-            take: 1,
-          },
         },
       });
 
@@ -334,6 +372,20 @@ export const courseRouter = createTRPCRouter({
         }
       }
 
+      const isLiked = ctx.userId
+        ? Boolean(
+            await prisma.like.findUnique({
+              where: {
+                userId_courseId: {
+                  userId: ctx.userId,
+                  courseId: course.id,
+                },
+              },
+              select: { id: true },
+            })
+          )
+        : false;
+
       // Simplified return
       return {
         id: course.id,
@@ -349,7 +401,7 @@ export const courseRouter = createTRPCRouter({
         tags: course.tags,
         isPublic: course.isPublic,
         likeCount: course._count.likes,
-        isLiked: course.likes.length > 0,
+        isLiked,
         collectCount: course._count.collections,
         creatorId: course.creatorId,
         creator: {

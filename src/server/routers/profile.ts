@@ -4,6 +4,31 @@ import { createTRPCRouter, protectedProcedure } from '../trpc';
 import { prisma } from '@/lib/prisma';
 import { getCollectorTier, getCreatorTier } from '@/lib/tier';
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const FIRST_UPDATE_TOLERANCE_MS = 1000;
+
+const getNicknameChangeWindow = (createdAt: Date, updatedAt: Date) => {
+  const nowMs = Date.now();
+  const isFirstProfileUpdate = Math.abs(updatedAt.getTime() - createdAt.getTime()) <= FIRST_UPDATE_TOLERANCE_MS;
+  if (isFirstProfileUpdate) {
+    return {
+      canChangeNow: true,
+      remainingDays: 0,
+      availableAt: new Date(updatedAt.getTime()),
+    };
+  }
+
+  const availableAt = new Date(updatedAt.getTime() + THIRTY_DAYS_MS);
+  const remainingMs = Math.max(0, availableAt.getTime() - nowMs);
+  const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+
+  return {
+    canChangeNow: remainingMs === 0,
+    remainingDays,
+    availableAt,
+  };
+};
+
 export const profileRouter = createTRPCRouter({
   deleteAccount: protectedProcedure
     .input(z.object({
@@ -110,15 +135,11 @@ export const profileRouter = createTRPCRouter({
         });
       }
 
-      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-      const FIRST_UPDATE_TOLERANCE_MS = 1000;
-      const now = Date.now();
-      const elapsed = now - userBefore.updatedAt.getTime();
-      const isFirstProfileUpdate = Math.abs(userBefore.updatedAt.getTime() - userBefore.createdAt.getTime()) <= FIRST_UPDATE_TOLERANCE_MS;
-      if (!isFirstProfileUpdate && elapsed < THIRTY_DAYS_MS) {
+      const nicknameWindow = getNicknameChangeWindow(userBefore.createdAt, userBefore.updatedAt);
+      if (!nicknameWindow.canChangeNow) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: '닉네임은 30일에 한 번만 변경할 수 있습니다',
+          message: `닉네임은 30일에 한 번만 변경할 수 있습니다 (남은 ${nicknameWindow.remainingDays}일)`,
         });
       }
 
@@ -135,6 +156,9 @@ export const profileRouter = createTRPCRouter({
   summary: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.userId;
     const user = await prisma.user.findUnique({ where: { id: userId } });
+    const nicknameWindow = user
+      ? getNicknameChangeWindow(user.createdAt, user.updatedAt)
+      : { canChangeNow: true, remainingDays: 0, availableAt: new Date() };
 
     const [createdCount, collectionCount, runStats, runCount, createdCourses] = await Promise.all([
       prisma.course.count({
@@ -161,6 +185,8 @@ export const profileRouter = createTRPCRouter({
         name: user?.name ?? '사용자',
         image: user?.image ?? null,
         isGuest: false,
+        nicknameChangeRemainingDays: nicknameWindow.remainingDays,
+        nicknameChangeAvailableAt: nicknameWindow.availableAt,
       },
       stats: {
         createdCourses: createdCount,

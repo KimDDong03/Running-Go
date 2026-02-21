@@ -6,6 +6,7 @@ import { rankingRouter } from './routers/ranking';
 import { runSessionRouter } from './routers/run-session';
 import { homeRouter } from './routers/home';
 import { profileRouter } from './routers/profile';
+import { missionRouter } from './routers/mission';
 
 export const appRouter = createTRPCRouter({
   course: courseRouter,
@@ -15,6 +16,7 @@ export const appRouter = createTRPCRouter({
   runSession: runSessionRouter,
   home: homeRouter,
   profile: profileRouter,
+  mission: missionRouter,
 });
 
 export type AppRouter = typeof appRouter;

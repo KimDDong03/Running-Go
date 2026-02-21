@@ -15,6 +15,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     '/cookies',
     '/courses',
     '/collection',
+    '/missions',
     '/rankings',
     '/profile',
     '/create',

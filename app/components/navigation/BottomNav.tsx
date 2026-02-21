@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Map as MapIcon, Book, Plus, Trophy, User } from 'lucide-react';
+import { Map as MapIcon, Book, Plus, Target, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -11,7 +11,7 @@ const navItems = [
   { href: '/', labelKey: 'nav.home' as MessageKey, icon: MapIcon, match: (path: string) => path === '/' },
   { href: '/collection', labelKey: 'nav.collection' as MessageKey, icon: Book, match: (path: string) => path.startsWith('/collection') },
   { href: '/create', labelKey: 'nav.create' as MessageKey, icon: Plus, match: (path: string) => path.startsWith('/create') },
-  { href: '/rankings', labelKey: 'nav.rankings' as MessageKey, icon: Trophy, match: (path: string) => path.startsWith('/rankings') },
+  { href: '/missions', labelKey: 'nav.missions' as MessageKey, icon: Target, match: (path: string) => path.startsWith('/missions') },
   { href: '/profile', labelKey: 'nav.profile' as MessageKey, icon: User, match: (path: string) => path.startsWith('/profile') },
 ];
 

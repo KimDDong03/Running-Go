@@ -26,14 +26,14 @@ export function LanguageSwitcher() {
       type="button"
       size="sm"
       variant="outline"
-      className="fixed right-3 top-[max(env(safe-area-inset-top),0.75rem)] z-[90] h-9 rounded-full border-white/80 bg-white/92 px-3 text-xs shadow-[0_12px_24px_-18px_rgba(15,23,42,0.7)]"
+      className="fixed right-3 top-[max(env(safe-area-inset-top),0.75rem)] z-[90] h-8 rounded-full border-white/80 bg-white/92 px-2.5 text-[11px] shadow-[0_12px_24px_-18px_rgba(15,23,42,0.7)]"
       onClick={() => {
         document.cookie = `${LOCALE_COOKIE_KEY}=${nextLocale}; path=/; max-age=31536000; samesite=lax`;
         router.refresh();
       }}
       aria-label={`Switch language to ${nextLocaleLabel}`}
     >
-      <Globe className="mr-1.5 h-3.5 w-3.5" />
+      <Globe className="mr-1 h-3.5 w-3.5" />
       {nextLocaleLabel}
     </Button>
   );

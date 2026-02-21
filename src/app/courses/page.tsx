@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -20,6 +20,8 @@ import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AdSlot } from '@/app/components/ads/AdSlot';
 import { useLocale } from '@/app/components/providers/LocaleProvider';
+import { CourseSortSelect } from './_components/CourseSortSelect';
+import { MapCourseCard } from './_components/MapCourseCard';
 import { Heart, LocateFixed, MapPin } from 'lucide-react';
 import { Difficulty } from '@prisma/client';
 
@@ -49,6 +51,7 @@ const PANEL_SNAP_INDEX = {
   MAX: 2,
 } as const;
 const ONBOARDING_STORAGE_KEY = 'running-go:onboarding:v1';
+const FIRST_CREATE_PROMPT_STORAGE_KEY = 'running-go:first-create-prompt:v1';
 const LAST_LOCATION_STORAGE_KEY = 'running-go:last-location:v1';
 const MAP_VIEWPORT_STORAGE_KEY = 'running-go:map-viewport:v1';
 
@@ -101,6 +104,11 @@ const getPanelSnapHeights = (viewportHeight: number) => {
   return { min, mid, max };
 };
 
+interface CourseMarkerEntry {
+  marker: MapMarkerLike;
+  signature: string;
+}
+
 interface CourseWaypoint {
   lat: number;
   lng: number;
@@ -150,108 +158,6 @@ const calculateDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: num
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadius * c;
 };
-
-interface MapCourseCardProps {
-  id: string;
-  title: string;
-  totalDistance: number;
-  estimatedTime: number;
-  likeCount: number;
-  centerLat: number;
-  centerLng: number;
-  previewUrl: string;
-  difficulty: Difficulty;
-  isSelected: boolean;
-  isEnglish: boolean;
-  difficultyText: string;
-  distanceText: string;
-  isLiked: boolean;
-  onSelect: (courseId: string, centerLat: number, centerLng: number) => void;
-  onToggleLike: (courseId: string, fallbackLikeCount: number) => void;
-}
-
-const MapCourseCard = memo(function MapCourseCard({
-  id,
-  title,
-  totalDistance,
-  estimatedTime,
-  likeCount,
-  centerLat,
-  centerLng,
-  previewUrl,
-  difficulty,
-  isSelected,
-  isEnglish,
-  difficultyText,
-  distanceText,
-  isLiked,
-  onSelect,
-  onToggleLike,
-}: MapCourseCardProps) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="w-full text-left"
-      onClick={() => onSelect(id, centerLat, centerLng)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect(id, centerLat, centerLng);
-        }
-      }}
-    >
-      <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${isSelected ? 'rg-selected border-[#1d8fff]/45 ring-2 ring-[#1d8fff]/20' : isLiked ? 'border-[#ffb020]/40 ring-1 ring-[#ffb020]/25' : 'border-white/70'}`}>
-        <CardContent className="p-3">
-          <div className="flex gap-3">
-            <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-[#e5f3ff] via-white to-[#f2fbe8]">
-              <Image
-                src={previewUrl}
-                alt={isEnglish ? `${title} map` : `${title} 지도`}
-                fill
-                sizes="120px"
-                quality={70}
-                unoptimized
-                className="object-cover"
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <h3 className="truncate text-sm font-semibold text-slate-900">{title}</h3>
-                {isLiked ? <Heart className="h-3.5 w-3.5 shrink-0 fill-[#ff5a36] text-[#ff5a36]" /> : null}
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
-                <MapPin className="h-3.5 w-3.5" />
-                <span>{totalDistance.toFixed(1)}km</span>
-                <span>•</span>
-                <span>{estimatedTime}{isEnglish ? ' min' : '분'}</span>
-              </div>
-              <p className="mt-1 text-xs text-slate-500">{isEnglish ? 'From my location' : '내 위치에서'} {distanceText}</p>
-              <div className="mt-2 flex items-center gap-2">
-                <Badge className={`${difficultyColors[difficulty]} rounded-full text-[11px]`}>
-                  {difficultyText}
-                </Badge>
-                <button
-                  type="button"
-                  className="flex items-center gap-1 rounded-full px-1 py-0.5 text-xs text-slate-600 transition-colors hover:bg-slate-100/90"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onToggleLike(id, likeCount);
-                  }}
-                  aria-label={isEnglish ? 'Toggle like' : '좋아요 토글'}
-                >
-                  <Heart className={`h-3.5 w-3.5 ${isLiked ? 'fill-[#ff5a36] text-[#ff5a36]' : ''}`} />
-                  <span>{likeCount}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-});
 
 const readStoredLocation = () => {
   if (typeof window === 'undefined') return null;
@@ -304,6 +210,10 @@ export default function CoursesPage() {
   });
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isOnboardingHintVisible, setIsOnboardingHintVisible] = useState(false);
+  const [hasDismissedFirstCreatePrompt, setHasDismissedFirstCreatePrompt] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem(FIRST_CREATE_PROMPT_STORAGE_KEY) === '1';
+  });
   const [selectionSource, setSelectionSource] = useState<'marker' | 'list' | 'recommended' | null>(null);
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const [likeOverrides, setLikeOverrides] = useState<Record<string, { isLiked: boolean; likeCount: number }>>({});
@@ -320,9 +230,10 @@ export default function CoursesPage() {
   const mapRef = useRef<MapLike | null>(null);
   const userMarkerRef = useRef<MapMarkerLike | null>(null);
   const userMarkerImageRef = useRef<string | null>(null);
-  const courseMarkersRef = useRef<MapMarkerLike[]>([]);
+  const courseMarkerMapRef = useRef<Map<string, CourseMarkerEntry>>(new Map());
   const selectedOutlinePolylineRef = useRef<MapPolylineLike | null>(null);
   const selectedMainPolylineRef = useRef<MapPolylineLike | null>(null);
+  const selectedPathColorRef = useRef<{ outline: string; main: string } | null>(null);
   const panelDragStateRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
   const markerReshowOnMoveRef = useRef(false);
   const markerReshowStartViewportRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
@@ -587,32 +498,33 @@ export default function CoursesPage() {
     profileImageRef.current = profileSummary?.user.image ?? null;
   }, [profileSummary?.user.image]);
 
-  const getLikeState = useCallback((courseId: string, fallbackLikeCount: number) => {
-    const overridden = likeOverrides[courseId];
-    if (overridden) {
-      return overridden;
-    }
+  const courseByIdMap = useMemo(() => {
+    return new Map((courses?.courses ?? []).map((course) => [course.id, course] as const));
+  }, [courses?.courses]);
 
-    const fromCourseList = courses?.courses.find((course) => course.id === courseId);
-    if (fromCourseList) {
-      return {
-        isLiked: Boolean(fromCourseList.isLiked),
-        likeCount: fromCourseList.likeCount,
-      };
+  const likeStateMap = useMemo(() => {
+    const map = new Map<string, { isLiked: boolean; likeCount: number }>();
+    for (const course of courses?.courses ?? []) {
+      map.set(course.id, {
+        isLiked: Boolean(course.isLiked),
+        likeCount: course.likeCount,
+      });
     }
-
-    if (selectedCourse?.id === courseId) {
-      return {
+    if (selectedCourse?.id) {
+      map.set(selectedCourse.id, {
         isLiked: Boolean(selectedCourse.isLiked),
         likeCount: selectedCourse.likeCount,
-      };
+      });
     }
-
-    return {
-      isLiked: false,
-      likeCount: fallbackLikeCount,
-    };
+    for (const [courseId, state] of Object.entries(likeOverrides)) {
+      map.set(courseId, state);
+    }
+    return map;
   }, [courses?.courses, likeOverrides, selectedCourse]);
+
+  const getLikeState = useCallback((courseId: string, fallbackLikeCount: number) => {
+    return likeStateMap.get(courseId) ?? { isLiked: false, likeCount: fallbackLikeCount };
+  }, [likeStateMap]);
 
   const handleToggleLike = useCallback((courseId: string, fallbackLikeCount: number) => {
     if (sessionStatus !== 'authenticated') {
@@ -642,11 +554,39 @@ export default function CoursesPage() {
               likeCount: result.likeCount,
             },
           }));
-          void utils.course.list.invalidate();
-          void utils.course.byId.invalidate({ id: courseId });
-          void utils.like.listByUser.invalidate();
-          void utils.home.summary.invalidate();
-          void utils.ranking.list.invalidate();
+          utils.course.list.setData(courseListInput, (previous) => {
+            if (!previous) return previous;
+            return {
+              ...previous,
+              courses: previous.courses.map((course) => (
+                course.id === courseId
+                  ? { ...course, isLiked: result.isLiked, likeCount: result.likeCount }
+                  : course
+              )),
+            };
+          });
+          utils.course.byId.setData({ id: courseId }, (previous) => {
+            if (!previous) return previous;
+            return {
+              ...previous,
+              isLiked: result.isLiked,
+              likeCount: result.likeCount,
+            };
+          });
+          utils.course.nearby.setData(
+            { lat: nearbySearch.lat, lng: nearbySearch.lng, radiusKm: nearbySearch.radiusKm, limit: 30 },
+            (previous) => {
+              if (!previous) return previous;
+              return {
+                ...previous,
+                courses: previous.courses.map((course) => (
+                  course.id === courseId
+                    ? { ...course, isLiked: result.isLiked }
+                    : course
+                )),
+              };
+            }
+          );
         },
         onError: (error) => {
           setLikeOverrides((current) => ({
@@ -659,7 +599,7 @@ export default function CoursesPage() {
         },
       }
     );
-  }, [getLikeState, isEnglish, router, sessionStatus, toggleLikeMutation, utils.course.byId, utils.course.list, utils.home.summary, utils.like.listByUser, utils.ranking.list]);
+  }, [courseListInput, getLikeState, isEnglish, nearbySearch.lat, nearbySearch.lng, nearbySearch.radiusKm, router, sessionStatus, toggleLikeMutation, utils.course.byId, utils.course.list, utils.course.nearby]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current || !userMarkerRef.current) return;
@@ -1113,10 +1053,10 @@ export default function CoursesPage() {
   }, [isEnglish]);
 
   const clearCourseMarkers = useCallback(() => {
-    courseMarkersRef.current.forEach((marker) => {
+    courseMarkerMapRef.current.forEach(({ marker }) => {
       marker.setMap(null);
     });
-    courseMarkersRef.current = [];
+    courseMarkerMapRef.current.clear();
   }, []);
 
   const clearSelectedPath = useCallback(() => {
@@ -1124,6 +1064,7 @@ export default function CoursesPage() {
     selectedMainPolylineRef.current?.setMap(null);
     selectedOutlinePolylineRef.current = null;
     selectedMainPolylineRef.current = null;
+    selectedPathColorRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -1316,14 +1257,15 @@ export default function CoursesPage() {
 
     const sdk = mapSdkRef.current;
     const mapInstance = mapRef.current;
-    clearCourseMarkers();
+    const markerMap = courseMarkerMapRef.current;
 
     if (!isNearbyCourseMarkerVisible) {
+      clearCourseMarkers();
       return;
     }
 
     const markerCourses = [...(nearbyCourses?.courses ?? [])];
-    const selectedCourseFromList = courses?.courses.find((course) => course.id === selectedCourseId);
+    const selectedCourseFromList = selectedCourseId ? courseByIdMap.get(selectedCourseId) : undefined;
     if (selectedCourseFromList && !markerCourses.some((course) => course.id === selectedCourseFromList.id)) {
       markerCourses.push({
         id: selectedCourseFromList.id,
@@ -1352,8 +1294,28 @@ export default function CoursesPage() {
       });
     }
 
+    const desiredCourseIds = new Set(markerCourses.map((course) => course.id));
+
+    markerMap.forEach((entry, courseId) => {
+      if (desiredCourseIds.has(courseId)) return;
+      entry.marker.setMap(null);
+      markerMap.delete(courseId);
+    });
+
     markerCourses.forEach((course) => {
       const courseIsLiked = getLikeState(course.id, 0).isLiked;
+      const styleToken = selectedCourseId === course.id
+        ? (courseIsLiked ? 'selected-liked' : 'selected')
+        : (courseIsLiked ? 'liked' : 'default');
+      const signature = `${styleToken}:${course.centerLat.toFixed(6)}:${course.centerLng.toFixed(6)}`;
+      const existingEntry = markerMap.get(course.id);
+      if (existingEntry && existingEntry.signature === signature) {
+        existingEntry.marker.setPosition(toLatLng(course.centerLat, course.centerLng));
+        return;
+      }
+
+      existingEntry?.marker.setMap(null);
+
       const markerButton = document.createElement('button');
       markerButton.type = 'button';
       markerButton.className = [
@@ -1379,10 +1341,9 @@ export default function CoursesPage() {
           anchor: new sdk.Point(18, 36),
         },
       });
-
-      courseMarkersRef.current.push(marker);
+      markerMap.set(course.id, { marker, signature });
     });
-  }, [courses?.courses, getLikeState, isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode, clearCourseMarkers, toLatLng]);
+  }, [courseByIdMap, getLikeState, isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode, clearCourseMarkers, toLatLng]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
@@ -1390,7 +1351,7 @@ export default function CoursesPage() {
     const sdk = mapSdkRef.current;
     const mapInstance = mapRef.current;
     const selectedCourseForPath = selectedCourse
-      ?? courses?.courses.find((course) => course.id === selectedCourseId)
+      ?? (selectedCourseId ? courseByIdMap.get(selectedCourseId) : undefined)
       ?? null;
     const selectedPathColors = selectedCourseForPath
       && getLikeState(selectedCourseForPath.id, selectedCourseForPath.likeCount).isLiked
@@ -1402,30 +1363,41 @@ export default function CoursesPage() {
     }
 
     const path = selectedWaypointList.map((point) => toLatLng(point.lat, point.lng));
-    clearSelectedPath();
-    selectedOutlinePolylineRef.current = new sdk.Polyline({
-      map: mapInstance,
-      path,
-      strokeColor: selectedPathColors.outline,
-      strokeWeight: 8,
-      strokeOpacity: 0.5,
-      strokeLineCap: 'round',
-      strokeLineJoin: 'round',
-      clickable: false,
-    });
+    const previousColors = selectedPathColorRef.current;
+    const colorChanged = !previousColors
+      || previousColors.outline !== selectedPathColors.outline
+      || previousColors.main !== selectedPathColors.main;
 
-    selectedMainPolylineRef.current = new sdk.Polyline({
-      map: mapInstance,
-      path,
-      strokeColor: selectedPathColors.main,
-      strokeWeight: 6,
-      strokeOpacity: 0.98,
-      strokeLineCap: 'round',
-      strokeLineJoin: 'round',
-      clickable: false,
-    });
+    if (!selectedOutlinePolylineRef.current || !selectedMainPolylineRef.current || colorChanged) {
+      clearSelectedPath();
+      selectedOutlinePolylineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: selectedPathColors.outline,
+        strokeWeight: 8,
+        strokeOpacity: 0.5,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
 
-  }, [courses?.courses, getLikeState, selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
+      selectedMainPolylineRef.current = new sdk.Polyline({
+        map: mapInstance,
+        path,
+        strokeColor: selectedPathColors.main,
+        strokeWeight: 6,
+        strokeOpacity: 0.98,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        clickable: false,
+      });
+      selectedPathColorRef.current = selectedPathColors;
+      return;
+    }
+
+    selectedOutlinePolylineRef.current.setPath(path);
+    selectedMainPolylineRef.current.setPath(path);
+  }, [courseByIdMap, getLikeState, selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
 
   useEffect(() => {
     if (viewMode !== 'map' || selectionSource !== 'list') return;
@@ -1512,6 +1484,13 @@ export default function CoursesPage() {
     : headingMode === 'follow'
       ? (isEnglish ? 'Move to current location (tracking on)' : '내 현재 위치로 이동 (추적 켜짐)')
       : (isEnglish ? 'Move to current location (tracking + heading fan on)' : '내 현재 위치로 이동 (추적 + 방향 부채꼴 켜짐)');
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.style.setProperty('--rg-home-fab-bottom', `${locationButtonBottom}px`);
+    return () => {
+      document.documentElement.style.removeProperty('--rg-home-fab-bottom');
+    };
+  }, [locationButtonBottom]);
   const selectedCourseLikeState = selectedCourse
     ? getLikeState(selectedCourse.id, selectedCourse.likeCount)
     : null;
@@ -1619,6 +1598,13 @@ export default function CoursesPage() {
     }
   };
 
+  const closeFirstCreatePrompt = useCallback(() => {
+    setHasDismissedFirstCreatePrompt(true);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(FIRST_CREATE_PROMPT_STORAGE_KEY, '1');
+    }
+  }, []);
+
   const handleOnboardingNext = () => {
     if (onboardingStepIndex >= onboardingSteps.length - 1) {
       closeOnboarding();
@@ -1637,8 +1623,19 @@ export default function CoursesPage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (sessionStatus !== 'authenticated') return;
+    if ((profileSummary?.stats.createdCourses ?? 0) > 0) {
+      window.localStorage.setItem(FIRST_CREATE_PROMPT_STORAGE_KEY, '1');
+    }
+  }, [profileSummary?.stats.createdCourses, sessionStatus]);
+
   const onboardingStep = onboardingSteps[onboardingStepIndex];
   const isLastOnboardingStep = onboardingStepIndex === onboardingSteps.length - 1;
+  const shouldShowFirstCreatePrompt = sessionStatus === 'authenticated'
+    && (profileSummary?.stats.createdCourses ?? 0) === 0
+    && !hasDismissedFirstCreatePrompt;
   const panelScrollableContent = (
     <div
       ref={panelContentRef}
@@ -1658,6 +1655,42 @@ export default function CoursesPage() {
       onTouchCancel={onPanelContentTouchEnd}
     >
       <div className="mb-3 space-y-2">
+        {shouldShowFirstCreatePrompt ? (
+          <div className="rounded-2xl border border-[#ffb020]/40 bg-[#fff7e6] px-3 py-3 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.45)]">
+            <p className="text-xs font-semibold text-[#9a4d00]">
+              {isEnglish ? 'First creator mission' : '첫 제작 미션'}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-[#7b3f00]">
+              {isEnglish
+                ? 'Try drawing your first course. It only takes a minute and unlocks your creator progress.'
+                : '첫 코스를 직접 그려보세요. 1분이면 시작할 수 있고, 제작자 진행도가 바로 쌓입니다.'}
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-full px-3 text-[11px]"
+                onClick={() => {
+                  closeFirstCreatePrompt();
+                  trackEvent('first_create_prompt_clicked', { locale });
+                  router.push('/create');
+                }}
+              >
+                {isEnglish ? 'Create now' : '지금 만들기'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full border-[#ffd48a] bg-white/80 px-3 text-[11px] text-[#9a4d00]"
+                onClick={closeFirstCreatePrompt}
+              >
+                {isEnglish ? 'Later' : '나중에'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {starterCourse ? (
           <button
             type="button"
@@ -1685,17 +1718,12 @@ export default function CoursesPage() {
             <p className="truncate text-xs text-slate-500">{courses?.courses.length ?? 0}{isEnglish ? ' courses' : '개 코스'}</p>
           </div>
         </div>
-        <select
+        <CourseSortSelect
           value={listSort}
-          onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
+          isEnglish={isEnglish}
           className="rg-touch h-11 w-full rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
-        >
-          <option value="LATEST">{isEnglish ? 'Latest' : '최신순'}</option>
-          <option value="LIKES_DESC">{isEnglish ? 'Most Liked' : '좋아요 많은순'}</option>
-          <option value="NEAREST">{isEnglish ? 'Nearest (My Location)' : '가까운순(내 위치)'}</option>
-          <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
-          <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
-        </select>
+          onChange={setListSort}
+        />
         {canRenderMapPanelAd ? (
           <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
         ) : null}
@@ -2001,17 +2029,12 @@ export default function CoursesPage() {
         ) : (
           <>
             <div className="flex items-center justify-end">
-              <select
+              <CourseSortSelect
                 value={listSort}
-                onChange={(event) => setListSort(parseCourseListSort(event.target.value))}
+                isEnglish={isEnglish}
                 className="rg-touch h-11 rounded-full border border-white/70 bg-white/90 px-3 text-sm text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
-              >
-                <option value="LATEST">{isEnglish ? 'Latest' : '최신순'}</option>
-                <option value="LIKES_DESC">{isEnglish ? 'Most Liked' : '좋아요 많은순'}</option>
-                <option value="NEAREST">{isEnglish ? 'Nearest (My Location)' : '가까운순(내 위치)'}</option>
-                <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
-                <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
-              </select>
+                onChange={setListSort}
+              />
             </div>
             {listSort === 'NEAREST' && locationError && (
               <p className="text-sm text-slate-500">{locationError}</p>

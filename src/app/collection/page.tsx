@@ -38,6 +38,26 @@ const difficultyColors: Record<Difficulty, string> = {
   HARD: 'bg-[#ff5a36] text-white',
 };
 
+type CourseListSort =
+  | 'LATEST'
+  | 'LIKES_DESC'
+  | 'NEAREST'
+  | 'COURSE_DISTANCE_ASC'
+  | 'COURSE_DISTANCE_DESC';
+
+const parseCourseListSort = (value: string): CourseListSort => {
+  if (
+    value === 'LIKES_DESC'
+    || value === 'NEAREST'
+    || value === 'COURSE_DISTANCE_ASC'
+    || value === 'COURSE_DISTANCE_DESC'
+    || value === 'LATEST'
+  ) {
+    return value;
+  }
+  return 'NEAREST';
+};
+
 export default function CollectionPage() {
   const router = useRouter();
   const { locale } = useLocale();
@@ -65,10 +85,12 @@ export default function CollectionPage() {
       placeholderData: (previousData) => previousData,
     }
   );
-
-  const [sort, setSort] = useState<'recent' | 'count'>('recent');
+  const [catalogScope, setCatalogScope] = useState<'all' | 'vault'>('all');
+  const [allSort, setAllSort] = useState<CourseListSort>('NEAREST');
+  const [vaultSort, setVaultSort] = useState<'recent' | 'count'>('recent');
   const [viewType, setViewType] = useState<'collected' | 'created' | 'liked'>('collected');
-  const [likedFilter, setLikedFilter] = useState<'ALL' | 'COLLECTED' | 'PENDING'>('ALL');
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [isRoutePreviewOpen, setIsRoutePreviewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
@@ -81,6 +103,28 @@ export default function CollectionPage() {
     { courseId: historyTarget?.id ?? '', limit: 50 },
     { enabled: sessionStatus !== 'unauthenticated' && Boolean(historyTarget?.id) }
   );
+  const allCourseInput = useMemo(() => {
+    if (allSort === 'NEAREST' && userLocation) {
+      return {
+        limit: 50,
+        sortBy: allSort,
+        location: userLocation,
+      };
+    }
+    return {
+      limit: 50,
+      sortBy: allSort,
+    };
+  }, [allSort, userLocation]);
+  const {
+    data: allCourseData,
+    isLoading: isAllCourseLoading,
+    isError: isAllCourseError,
+    refetch: refetchAllCourses,
+  } = trpc.course.list.useQuery(
+    allCourseInput,
+    { enabled: sessionStatus === 'authenticated' && (allSort !== 'NEAREST' || Boolean(userLocation)) }
+  );
   const difficultyLabel = (difficulty: Difficulty) => {
     if (!isEnglish) {
       return difficultyLabels[difficulty];
@@ -89,6 +133,30 @@ export default function CollectionPage() {
     if (difficulty === 'MEDIUM') return 'Medium';
     return 'Hard';
   };
+
+  useEffect(() => {
+    if (allSort !== 'NEAREST') return;
+    if (userLocation) return;
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationError(null);
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      () => {
+        setLocationError(isEnglish ? 'Unable to get current location.' : '현재 위치를 가져올 수 없습니다');
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0,
+      }
+    );
+  }, [allSort, isEnglish, userLocation]);
 
   const deleteCourse = trpc.course.delete.useMutation({
     onSuccess: async (result, variables) => {
@@ -110,6 +178,8 @@ export default function CollectionPage() {
       toast.error(mutationError.message || (isEnglish ? 'Failed to delete course.' : '코스를 삭제하지 못했습니다'));
     },
   });
+
+  const toggleLike = trpc.like.toggle.useMutation();
 
   type RouteCourse = {
     id: string;
@@ -182,26 +252,40 @@ export default function CollectionPage() {
     }));
   }, [likedData]);
 
+  const pendingLikedCourses = useMemo(
+    () => likedCourses.filter((course) => (course.count ?? 0) === 0),
+    [likedCourses]
+  );
+
+  const allCourses = useMemo<RouteCourse[]>(() => {
+    if (!allCourseData?.courses) return [];
+    return allCourseData.courses.map((course) => ({
+      id: course.id,
+      title: course.title,
+      totalDistance: course.totalDistance,
+      difficulty: course.difficulty,
+      waypoints: Array.isArray(course.waypoints)
+        ? (course.waypoints as { lat: number; lng: number; order: number }[])
+        : [],
+      centerLat: course.centerLat,
+      centerLng: course.centerLng,
+      thumbnailUrl: course.thumbnailUrl,
+      createdAt: course.createdAt,
+      likeCount: course.likeCount,
+      status: undefined,
+    }));
+  }, [allCourseData]);
+
   const baseCourses = viewType === 'created'
     ? createdCourses
     : viewType === 'liked'
-      ? likedCourses
+      ? pendingLikedCourses
       : collectedCourses;
 
-  const sortedCourses = (() => {
+  const sortedCourses = useMemo(() => {
     if (!baseCourses.length) return [];
-    const filteredByLikedStatus = viewType === 'liked'
-      ? baseCourses.filter((course) => {
-          if (likedFilter === 'ALL') return true;
-          if (likedFilter === 'COLLECTED') return (course.count ?? 0) > 0;
-          return (course.count ?? 0) === 0;
-        })
-      : baseCourses;
-
-    const filtered = filteredByLikedStatus;
-
-    const next = [...filtered];
-    if (sort === 'count') {
+    const next = [...baseCourses];
+    if (vaultSort === 'count') {
       if (viewType === 'created' || viewType === 'liked') {
         return next.sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0));
       }
@@ -214,13 +298,43 @@ export default function CollectionPage() {
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bTime - aTime;
     });
-  })();
+  }, [baseCourses, vaultSort, viewType]);
 
-  const selectedCourses = sortedCourses.filter((course) => selectedCourseIds.includes(course.id));
-  const canRenderCollectionAd = sortedCourses.length >= 3
+  const displayedCourses = catalogScope === 'all' ? allCourses : sortedCourses;
+  const selectedCourses = displayedCourses.filter((course) => selectedCourseIds.includes(course.id));
+  const canRenderCollectionAd = displayedCourses.length >= 3
     && !isRoutePreviewOpen
     && !historyTarget
     && !deleteTarget;
+
+  const handleUnlikeFromCollection = async (courseId: string) => {
+    const previous = utils.like.listByUser.getData();
+    if (previous?.likes) {
+      utils.like.listByUser.setData(undefined, {
+        likes: previous.likes.filter((item) => item.course.id !== courseId),
+      });
+    }
+
+    try {
+      const result = await toggleLike.mutateAsync({ courseId });
+      if (result.isLiked) {
+        await utils.like.listByUser.invalidate();
+      }
+      await Promise.all([
+        utils.course.list.invalidate(),
+        utils.course.byId.invalidate({ id: courseId }),
+      ]);
+      toast.success(isEnglish ? 'Removed from saved courses.' : '코스 보관함에서 제거했습니다');
+    } catch (mutationError) {
+      if (previous) {
+        utils.like.listByUser.setData(undefined, previous);
+      }
+      const message = mutationError instanceof Error
+        ? mutationError.message
+        : (isEnglish ? 'Failed to update like.' : '좋아요를 반영하지 못했습니다');
+      toast.error(message);
+    }
+  };
 
   useEffect(() => {
     if (!isRoutePreviewOpen || !previewMapContainerRef.current) {
@@ -326,6 +440,12 @@ export default function CollectionPage() {
     };
   }, [router]);
 
+  const isPageLoading = isLoading || isCreatedLoading || isLikedLoading || (catalogScope === 'all' && isAllCourseLoading);
+  const isPageError = isError || (catalogScope === 'all' && isAllCourseError);
+  const nearestLocationError = allSort === 'NEAREST' && !navigator.geolocation
+    ? (isEnglish ? 'Location permission is required for nearest sort.' : '가까운순 정렬에는 위치 권한이 필요합니다')
+    : locationError;
+
   return (
     <div className="rg-page">
       <main className="rg-page-main p-4 pt-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] space-y-4">
@@ -340,9 +460,9 @@ export default function CollectionPage() {
               window.location.href = '/login';
             }}
           />
-        ) : isLoading || isCreatedLoading || isLikedLoading ? (
+        ) : isPageLoading ? (
           <div className="text-center py-20 text-slate-500">{isEnglish ? 'Loading...' : '불러오는 중...'}</div>
-        ) : isError ? (
+        ) : isPageError ? (
           error?.data?.code === 'UNAUTHORIZED' ? (
             <div className="text-center py-20">
               <p className="text-red-500">{isEnglish ? 'Sign-in is required.' : '로그인이 필요합니다'}</p>
@@ -355,7 +475,13 @@ export default function CollectionPage() {
               title={isEnglish ? 'Failed to load collection' : '도감을 불러오지 못했습니다'}
               message={isEnglish ? 'Please try again shortly.' : '잠시 후 다시 시도해주세요'}
               actionLabel={isEnglish ? 'Retry' : '다시 시도'}
-              onAction={() => refetch()}
+              onAction={() => {
+                if (catalogScope === 'all') {
+                  void refetchAllCourses();
+                  return;
+                }
+                void refetch();
+              }}
             />
           )
         ) : (
@@ -363,83 +489,99 @@ export default function CollectionPage() {
             <div className="rg-chip-bar rg-scroll-row">
               <Button
                 size="sm"
-                variant={viewType === 'collected' ? 'default' : 'outline'}
+                variant={catalogScope === 'all' ? 'default' : 'outline'}
                 className="rg-touch rg-press rounded-full"
+                onClick={() => {
+                  setCatalogScope('all');
+                  setSelectedCourseIds([]);
+                  setIsRoutePreviewOpen(false);
+                }}
+              >
+                {isEnglish ? 'All Courses' : '전체 코스'}
+              </Button>
+              <Button
+                size="sm"
+                variant={catalogScope === 'vault' ? 'default' : 'outline'}
+                className="rg-touch rg-press rounded-full"
+                onClick={() => setCatalogScope('vault')}
+              >
+                {isEnglish ? 'Course Vault' : '코스 보관함'}
+              </Button>
+            </div>
+
+            {catalogScope === 'vault' ? (
+              <div className="rg-chip-bar rg-scroll-row">
+                <Button
+                  size="sm"
+                  variant={viewType === 'collected' ? 'default' : 'outline'}
+                  className="rg-touch rg-press rounded-full"
                   onClick={() => setViewType('collected')}
                 >
                   {isEnglish ? 'Collected Courses' : '수집한 코스'}
                 </Button>
-              <Button
-                size="sm"
-                variant={viewType === 'created' ? 'default' : 'outline'}
-                className="rg-touch rg-press rounded-full"
-                onClick={() => setViewType('created')}
+                <Button
+                  size="sm"
+                  variant={viewType === 'created' ? 'default' : 'outline'}
+                  className="rg-touch rg-press rounded-full"
+                  onClick={() => setViewType('created')}
                 >
                   {isEnglish ? 'Created Courses' : '제작한 코스'}
                 </Button>
-              <Button
-                size="sm"
-                variant={viewType === 'liked' ? 'default' : 'outline'}
-                className="rg-touch rg-press rounded-full"
-                onClick={() => setViewType('liked')}
-              >
-                {isEnglish ? 'Saved Courses' : '코스 보관함'}
-              </Button>
-            </div>
-            {viewType === 'liked' && (
-              <div className="rg-chip-bar rg-scroll-row">
                 <Button
                   size="sm"
-                  variant={likedFilter === 'ALL' ? 'default' : 'outline'}
+                  variant={viewType === 'liked' ? 'default' : 'outline'}
                   className="rg-touch rg-press rounded-full"
-                  onClick={() => setLikedFilter('ALL')}
+                  onClick={() => setViewType('liked')}
                 >
-                  {isEnglish ? 'All' : '전체'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={likedFilter === 'COLLECTED' ? 'default' : 'outline'}
-                  className="rg-touch rg-press rounded-full"
-                  onClick={() => setLikedFilter('COLLECTED')}
-                >
-                  {isEnglish ? 'Collected' : '수집 완료'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={likedFilter === 'PENDING' ? 'default' : 'outline'}
-                  className="rg-touch rg-press rounded-full"
-                  onClick={() => setLikedFilter('PENDING')}
-                >
-                  {isEnglish ? 'Pending' : '수집 미완료'}
+                  {isEnglish ? 'Wishlist' : '관심 코스'}
                 </Button>
               </div>
-            )}
-            <div className="rg-chip-bar rg-scroll-row">
+            ) : null}
+
+            {catalogScope === 'all' ? (
+              <select
+                value={allSort}
+                onChange={(event) => setAllSort(parseCourseListSort(event.target.value))}
+                className="rg-touch h-11 w-full rounded-full border border-white/70 bg-white/90 px-3 text-xs text-slate-700 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.55)]"
+              >
+                <option value="LATEST">{isEnglish ? 'Latest' : '최신순'}</option>
+                <option value="LIKES_DESC">{isEnglish ? 'Most Liked' : '좋아요 많은순'}</option>
+                <option value="NEAREST">{isEnglish ? 'Nearest (My Location)' : '가까운순(내 위치)'}</option>
+                <option value="COURSE_DISTANCE_ASC">{isEnglish ? 'Shortest Distance' : '코스 짧은순'}</option>
+                <option value="COURSE_DISTANCE_DESC">{isEnglish ? 'Longest Distance' : '코스 긴순'}</option>
+              </select>
+            ) : (
+              <div className="rg-chip-bar rg-scroll-row">
               <Button
                 size="sm"
-                variant={sort === 'recent' ? 'default' : 'outline'}
+                variant={vaultSort === 'recent' ? 'default' : 'outline'}
                 className="rg-touch rg-press rounded-full"
-                onClick={() => setSort('recent')}
+                onClick={() => setVaultSort('recent')}
               >
                 {isEnglish ? 'Latest' : '최신순'}
               </Button>
               <Button
                 size="sm"
-                variant={sort === 'count' ? 'default' : 'outline'}
+                variant={vaultSort === 'count' ? 'default' : 'outline'}
                 className="rg-touch rg-press rounded-full"
-                onClick={() => setSort('count')}
+                onClick={() => setVaultSort('count')}
               >
                 {viewType === 'created' || viewType === 'liked'
                   ? (isEnglish ? 'Most Liked' : '인기순')
                   : (isEnglish ? 'Most Collected' : '수집 많은 순')}
               </Button>
             </div>
+            )}
+
+            {catalogScope === 'all' && allSort === 'NEAREST' && nearestLocationError ? (
+              <p className="text-xs text-slate-500">{nearestLocationError}</p>
+            ) : null}
 
             {canRenderCollectionAd ? (
               <AdSlot className="rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
             ) : null}
 
-            {selectedCourseIds.length > 0 && (
+            {catalogScope === 'vault' && selectedCourseIds.length > 0 && (
               <div className="flex flex-col gap-2 rounded-2xl border border-[#1d8fff]/25 bg-[#1d8fff]/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-[#0f5fd7]">{isEnglish ? `${selectedCourseIds.length} selected` : `${selectedCourseIds.length}개 코스 선택됨`}</p>
                 <div className="flex items-center gap-2 sm:justify-end">
@@ -462,7 +604,7 @@ export default function CollectionPage() {
               </div>
             )}
 
-            {isRoutePreviewOpen && selectedCourses.length > 0 && (
+            {catalogScope === 'vault' && isRoutePreviewOpen && selectedCourses.length > 0 && (
               <div className="rounded-3xl border border-white/70 bg-white/90 p-3 shadow-[0_20px_36px_-28px_rgba(15,23,42,0.6)]">
                 <div ref={previewMapContainerRef} className="h-56 w-full rounded-2xl" />
                 <div className="mt-3 space-y-1">
@@ -484,25 +626,28 @@ export default function CollectionPage() {
               </div>
             )}
             <div className="rg-stagger grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {sortedCourses.length === 0 ? (
+              {displayedCourses.length === 0 ? (
                 <div className="col-span-2 rounded-2xl border border-white/70 bg-white/80 py-10 text-center text-sm text-slate-500">
-                  {viewType === 'created'
+                  {catalogScope === 'all'
+                    ? (isEnglish ? 'No courses available.' : '표시할 코스가 없습니다')
+                    : viewType === 'created'
                     ? (isEnglish ? 'No created courses yet.' : '아직 제작한 코스가 없습니다')
                     : viewType === 'liked'
                       ? (sessionStatus !== 'authenticated'
-                          ? (isEnglish ? 'Sign in to use saved courses.' : '코스 보관함은 로그인 후 이용할 수 있습니다')
-                          : (isEnglish ? 'No liked courses match this filter.' : '필터 조건에 맞는 코스 보관함 항목이 없습니다'))
+                          ? (isEnglish ? 'Sign in to use your wishlist.' : '관심 코스는 로그인 후 이용할 수 있습니다')
+                          : (isEnglish ? 'No wishlist courses yet.' : '아직 관심 코스가 없습니다'))
                       : (isEnglish ? 'No collected courses yet.' : '아직 수집한 코스가 없습니다')}
                 </div>
-              ) : sortedCourses.map((course) => {
+              ) : displayedCourses.map((course) => {
                 const isSelected = selectedCourseIds.includes(course.id);
 
                 return (
                 <Link
                   key={course.id}
-                  href={viewType === 'created' ? `/?focusCourseId=${course.id}` : `/courses/${course.id}`}
+                  href={catalogScope === 'all' || viewType === 'created' || viewType === 'liked' ? `/?focusCourseId=${course.id}` : `/courses/${course.id}`}
                   className="block w-full text-left"
                   onClick={(event) => {
+                    if (catalogScope === 'all') return;
                     if (viewType !== 'collected') return;
                     event.preventDefault();
                     setHistoryTarget({ id: course.id, title: course.title });
@@ -510,7 +655,7 @@ export default function CollectionPage() {
                 >
                   <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
                     <div className="relative h-28 bg-gradient-to-br from-[#e5f3ff] via-white to-[#f2fbe8]">
-                      {viewType === 'created' && (
+                      {catalogScope === 'vault' && viewType === 'created' && (
                         <button
                           type="button"
                           className="absolute left-2 top-2 z-20 inline-flex h-6 items-center gap-1 rounded-full border border-red-200 bg-white/95 px-2 text-[10px] font-semibold text-red-600"
@@ -527,21 +672,23 @@ export default function CollectionPage() {
                           {isEnglish ? 'Delete' : '삭제'}
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className={`absolute right-2 top-2 z-20 h-6 min-w-6 rounded-full border px-1 text-[10px] font-semibold ${isSelected ? 'border-[#1d8fff]/50 bg-[#0f5fd7] text-white' : 'border-white/80 bg-white/90 text-slate-700'}`}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setSelectedCourseIds((prev) => (
-                            prev.includes(course.id)
-                              ? prev.filter((id) => id !== course.id)
-                              : [...prev, course.id]
-                          ));
-                        }}
-                      >
-                        {isSelected ? (isEnglish ? 'On' : '선택') : (isEnglish ? 'View' : '보기')}
-                      </button>
+                      {catalogScope === 'vault' ? (
+                        <button
+                          type="button"
+                          className={`absolute right-2 top-2 z-20 h-6 min-w-6 rounded-full border px-1 text-[10px] font-semibold ${isSelected ? 'border-[#1d8fff]/50 bg-[#0f5fd7] text-white' : 'border-white/80 bg-white/90 text-slate-700'}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setSelectedCourseIds((prev) => (
+                              prev.includes(course.id)
+                                ? prev.filter((id) => id !== course.id)
+                                : [...prev, course.id]
+                            ));
+                          }}
+                        >
+                          {isSelected ? (isEnglish ? 'On' : '선택') : (isEnglish ? 'View' : '보기')}
+                        </button>
+                      ) : null}
                       <Image
                         src={(() => {
                           const raw = Array.isArray(course.waypoints)
@@ -568,7 +715,15 @@ export default function CollectionPage() {
                         {course.title}
                       </div>
                       <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
-                        {viewType === 'created' ? (
+                        {catalogScope === 'all' ? (
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="inline-flex min-w-0 items-center gap-1">
+                              <MapPin className="h-3 w-3 shrink-0" />
+                              {isEnglish ? 'All Courses' : '전체 코스'}
+                            </span>
+                            <span className="shrink-0">❤️ {course.likeCount ?? 0}</span>
+                          </div>
+                        ) : viewType === 'created' ? (
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3 w-3 shrink-0" />{isEnglish ? 'My Course' : '내 제작'}</span>
                             <span className="shrink-0">❤️ {course.likeCount ?? 0}</span>
@@ -577,6 +732,30 @@ export default function CollectionPage() {
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="inline-flex min-w-0 items-center gap-1"><Heart className="h-3 w-3 shrink-0 text-red-500" />{isEnglish ? 'Saved' : '보관함'}</span>
                             <span className="shrink-0">{(course.count ?? 0) > 0 ? (isEnglish ? 'Collected' : '수집 완료') : (isEnglish ? 'Pending' : '수집 미완료')}</span>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void handleUnlikeFromCollection(course.id);
+                              }}
+                              disabled={toggleLike.isPending}
+                            >
+                              <Heart className="h-3 w-3 fill-[#ff5a36] text-[#ff5a36]" />
+                              {isEnglish ? 'Unlike' : '좋아요 취소'}
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-full border border-[#1d8fff]/35 bg-[#1d8fff]/10 px-2 py-0.5 text-[10px] font-semibold text-[#0f5fd7] transition-colors hover:bg-[#1d8fff]/15"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                router.push(`/?focusCourseId=${course.id}`);
+                              }}
+                            >
+                              {isEnglish ? 'Route' : '루트'}
+                            </button>
                           </div>
                         ) : (
                           <span className="truncate">{course.count ?? 0}{isEnglish ? ' collected' : '회 수집'}</span>
@@ -588,7 +767,7 @@ export default function CollectionPage() {
                       >
                           {difficultyLabel(course.difficulty)}
                         </Badge>
-                        {viewType === 'created' && course.status === 'HIDDEN' ? (
+                        {catalogScope === 'vault' && viewType === 'created' && course.status === 'HIDDEN' ? (
                           <Badge variant="outline" className="rounded-full text-[10px]">{isEnglish ? 'Private' : '미공개'}</Badge>
                         ) : null}
                       </div>
