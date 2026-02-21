@@ -398,6 +398,9 @@ export default function CoursesPage() {
       if (headingIndicatorElementRef.current) {
         headingIndicatorElementRef.current.style.transform = `translate(-50%, -50%) rotate(${next}deg)`;
       }
+      if (headingModeRef.current === 'fan') {
+        mapRef.current?.setBearing?.(next);
+      }
 
       if (pendingHeadingRef.current !== null) {
         headingVisualRafRef.current = window.requestAnimationFrame(animate);
@@ -444,7 +447,7 @@ export default function CoursesPage() {
       headingIndicatorElementRef.current.style.opacity = '1';
     }
 
-    mapInstance.setBearing?.(0);
+    mapInstance.setBearing?.(displayedHeadingRef.current);
 
     resetHeadingVisual(currentHeadingRef.current);
   }, [resetHeadingVisual]);
@@ -1350,7 +1353,7 @@ export default function CoursesPage() {
     }
 
     markerCourses.forEach((course) => {
-      const courseIsLiked = Boolean(course.isLiked) || getLikeState(course.id, 0).isLiked;
+      const courseIsLiked = getLikeState(course.id, 0).isLiked;
       const markerButton = document.createElement('button');
       markerButton.type = 'button';
       markerButton.className = [
@@ -1399,36 +1402,28 @@ export default function CoursesPage() {
     }
 
     const path = selectedWaypointList.map((point) => toLatLng(point.lat, point.lng));
+    clearSelectedPath();
+    selectedOutlinePolylineRef.current = new sdk.Polyline({
+      map: mapInstance,
+      path,
+      strokeColor: selectedPathColors.outline,
+      strokeWeight: 8,
+      strokeOpacity: 0.5,
+      strokeLineCap: 'round',
+      strokeLineJoin: 'round',
+      clickable: false,
+    });
 
-    if (selectedOutlinePolylineRef.current) {
-      selectedOutlinePolylineRef.current.setPath(path);
-    } else {
-      selectedOutlinePolylineRef.current = new sdk.Polyline({
-        map: mapInstance,
-        path,
-        strokeColor: selectedPathColors.outline,
-        strokeWeight: 8,
-        strokeOpacity: 0.5,
-        strokeLineCap: 'round',
-        strokeLineJoin: 'round',
-        clickable: false,
-      });
-    }
-
-    if (selectedMainPolylineRef.current) {
-      selectedMainPolylineRef.current.setPath(path);
-    } else {
-      selectedMainPolylineRef.current = new sdk.Polyline({
-        map: mapInstance,
-        path,
-        strokeColor: selectedPathColors.main,
-        strokeWeight: 6,
-        strokeOpacity: 0.98,
-        strokeLineCap: 'round',
-        strokeLineJoin: 'round',
-        clickable: false,
-      });
-    }
+    selectedMainPolylineRef.current = new sdk.Polyline({
+      map: mapInstance,
+      path,
+      strokeColor: selectedPathColors.main,
+      strokeWeight: 6,
+      strokeOpacity: 0.98,
+      strokeLineCap: 'round',
+      strokeLineJoin: 'round',
+      clickable: false,
+    });
 
   }, [courses?.courses, getLikeState, selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
 
