@@ -81,6 +81,13 @@
   --sidebar-accent-foreground: #0f172a;
   --sidebar-border: #d6e6f5;
   --sidebar-ring: #38bdf8;
+  --rg-primary: #1d8fff;
+  --rg-primary-deep: #0f5fd7;
+  --rg-accent: #67c93a;
+  --rg-highlight: #ffb020;
+  --rg-ink: #102449;
+  --rg-route: #ff5a36;
+  --rg-route-2: #1d8fff;
 }
 
 .dark {
@@ -102,6 +109,13 @@
   --border: rgba(255, 255, 255, 0.12);
   --input: rgba(255, 255, 255, 0.16);
   --ring: #38bdf8;
+  --rg-primary: #1d8fff;
+  --rg-primary-deep: #0f5fd7;
+  --rg-accent: #67c93a;
+  --rg-highlight: #ffb020;
+  --rg-ink: #102449;
+  --rg-route: #ff6b4d;
+  --rg-route-2: #4da5ff;
 }
 
 
@@ -148,10 +162,9 @@
   body {
     @apply text-foreground;
     background:
-      radial-gradient(1500px circle at -10% -10%, rgba(14, 165, 233, 0.18), transparent 60%),
-      radial-gradient(1100px circle at 105% 5%, rgba(45, 212, 191, 0.18), transparent 58%),
-      radial-gradient(900px circle at 50% 100%, rgba(56, 189, 248, 0.16), transparent 58%),
-      linear-gradient(165deg, #f5fbff 0%, #eef7ff 48%, #f9fcff 100%);
+      radial-gradient(980px circle at 10% 5%, color-mix(in oklab, var(--rg-primary) 20%, white) 0%, transparent 54%),
+      radial-gradient(720px circle at 88% 12%, color-mix(in oklab, var(--rg-accent) 15%, white) 0%, transparent 52%),
+      linear-gradient(170deg, #f9fdff 0%, #f1f8ff 56%, #f8fcff 100%);
     background-attachment: fixed;
     font-family: "Pretendard Variable", "Pretendard", var(--font-geist-sans), system-ui, sans-serif;
     -webkit-tap-highlight-color: transparent;
@@ -165,8 +178,8 @@
   }
 
   .rg-page-header {
-    @apply border-b border-white/70 bg-white/70 backdrop-blur-xl;
-    box-shadow: 0 16px 34px -30px rgba(15, 23, 42, 0.7);
+    @apply border-b border-[#102449]/12 bg-white/82 backdrop-blur-xl;
+    box-shadow: 0 16px 34px -30px rgba(16, 36, 73, 0.5);
   }
 
 
@@ -175,26 +188,63 @@
   }
 
   .rg-glass-card {
-    @apply border border-white/70 bg-white/78 backdrop-blur-md;
-    box-shadow: 0 22px 42px -30px rgba(15, 23, 42, 0.6);
+    @apply border border-[#102449]/14 bg-white/88 backdrop-blur-md;
+    box-shadow:
+      0 20px 36px -26px rgba(16, 36, 73, 0.5),
+      0 1px 0 rgba(255, 255, 255, 0.85) inset;
   }
 
   .rg-chip-bar {
-    @apply rounded-full border border-white/70 bg-white/72 p-1.5 backdrop-blur;
-    box-shadow: 0 14px 26px -22px rgba(15, 23, 42, 0.55);
+    @apply rounded-full border border-[#102449]/14 bg-white/90 p-1.5 backdrop-blur;
+    box-shadow: 0 12px 24px -18px rgba(16, 36, 73, 0.35);
   }
 
 
   .rg-soft-panel {
-    @apply rounded-2xl border border-white/70 bg-white/75;
-    box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.5);
+    @apply rounded-2xl border border-[#102449]/12 bg-white/85;
+    box-shadow: 0 14px 30px -24px rgba(16, 36, 73, 0.4);
   }
 
   .rg-gradient-text {
-    background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 56%, #0369a1 100%);
+    background: linear-gradient(135deg, var(--rg-primary) 0%, var(--rg-primary-deep) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+
+  .rg-pop-bg {
+    background:
+      radial-gradient(980px circle at 10% 5%, color-mix(in oklab, var(--rg-primary) 20%, white) 0%, transparent 54%),
+      radial-gradient(720px circle at 88% 12%, color-mix(in oklab, var(--rg-accent) 15%, white) 0%, transparent 52%),
+      linear-gradient(170deg, #f9fdff 0%, #f1f8ff 56%, #f8fcff 100%);
+  }
+
+  .rg-map-grid {
+    background-image:
+      linear-gradient(to right, rgba(16, 36, 73, 0.08) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(16, 36, 73, 0.08) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .rg-route-line {
+    background:
+      linear-gradient(90deg, var(--rg-route) 0%, color-mix(in oklab, var(--rg-route-2) 65%, white) 100%);
+    border: 2px solid color-mix(in oklab, var(--rg-ink) 18%, white);
+  }
+
+  .rg-pop-display {
+    color: var(--rg-ink);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+    letter-spacing: -0.02em;
+  }
+
+  .rg-map-pop-card {
+    border: 2px solid rgba(16, 36, 73, 0.16);
+    background:
+      linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(246, 252, 255, 0.9));
+    box-shadow:
+      0 20px 36px -26px rgba(16, 36, 73, 0.5),
+      0 1px 0 rgba(255, 255, 255, 0.85) inset;
   }
 
   .rg-floating {

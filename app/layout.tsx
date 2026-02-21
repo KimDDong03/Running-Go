@@ -83,9 +83,9 @@ gtag('config', '${GA_MEASUREMENT_ID}');`}
           <TRPCProvider>
             <LocaleProvider locale={locale} messages={messages}>
               <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-                <div className="absolute -left-24 top-12 h-72 w-72 rounded-full bg-sky-300/25 blur-3xl rg-floating" />
-                <div className="absolute right-[-72px] top-24 h-64 w-64 rounded-full bg-cyan-300/30 blur-3xl rg-floating" style={{ animationDelay: '1.2s' }} />
-                <div className="absolute bottom-[-90px] left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-teal-300/25 blur-3xl rg-floating" style={{ animationDelay: '2.2s' }} />
+                <div className="absolute -left-24 top-12 h-72 w-72 rounded-full bg-[#1d8fff]/18 blur-3xl rg-floating" />
+                <div className="absolute right-[-72px] top-24 h-64 w-64 rounded-full bg-[#67c93a]/16 blur-3xl rg-floating" style={{ animationDelay: '1.2s' }} />
+                <div className="absolute bottom-[-90px] left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-[#ffb020]/12 blur-3xl rg-floating" style={{ animationDelay: '2.2s' }} />
               </div>
               <LanguageSwitcher />
               <AdSenseBootstrap />

@@ -30,9 +30,9 @@ const difficultyLabelsKo: Record<Difficulty, string> = {
 };
 
 const difficultyColors: Record<Difficulty, string> = {
-  EASY: 'bg-green-500 text-white',
-  MEDIUM: 'bg-yellow-500 text-white',
-  HARD: 'bg-red-500 text-white',
+  EASY: 'bg-[#67c93a] text-[#102449]',
+  MEDIUM: 'bg-[#ffb020] text-[#102449]',
+  HARD: 'bg-[#ff5a36] text-white',
 };
 
 const DEFAULT_CENTER = {
@@ -165,7 +165,9 @@ interface MapCourseCardProps {
   isEnglish: boolean;
   difficultyText: string;
   distanceText: string;
+  isLiked: boolean;
   onSelect: (courseId: string, centerLat: number, centerLng: number) => void;
+  onToggleLike: (courseId: string, fallbackLikeCount: number) => void;
 }
 
 const MapCourseCard = memo(function MapCourseCard({
@@ -182,18 +184,27 @@ const MapCourseCard = memo(function MapCourseCard({
   isEnglish,
   difficultyText,
   distanceText,
+  isLiked,
   onSelect,
+  onToggleLike,
 }: MapCourseCardProps) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className="w-full text-left"
       onClick={() => onSelect(id, centerLat, centerLng)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(id, centerLat, centerLng);
+        }
+      }}
     >
-      <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${isSelected ? 'rg-selected border-sky-300 ring-2 ring-sky-200/70' : 'border-white/70'}`}>
+      <Card className={`rg-interactive-card rounded-2xl border bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden ${isSelected ? 'rg-selected border-[#1d8fff]/45 ring-2 ring-[#1d8fff]/20' : isLiked ? 'border-[#ffb020]/40 ring-1 ring-[#ffb020]/25' : 'border-white/70'}`}>
         <CardContent className="p-3">
           <div className="flex gap-3">
-            <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+            <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-[#e5f3ff] via-white to-[#f2fbe8]">
               <Image
                 src={previewUrl}
                 alt={isEnglish ? `${title} map` : `${title} 지도`}
@@ -205,7 +216,10 @@ const MapCourseCard = memo(function MapCourseCard({
               />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="truncate text-sm font-semibold text-slate-900">{title}</h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="truncate text-sm font-semibold text-slate-900">{title}</h3>
+                {isLiked ? <Heart className="h-3.5 w-3.5 shrink-0 fill-[#ff5a36] text-[#ff5a36]" /> : null}
+              </div>
               <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
                 <MapPin className="h-3.5 w-3.5" />
                 <span>{totalDistance.toFixed(1)}km</span>
@@ -217,16 +231,25 @@ const MapCourseCard = memo(function MapCourseCard({
                 <Badge className={`${difficultyColors[difficulty]} rounded-full text-[11px]`}>
                   {difficultyText}
                 </Badge>
-                <div className="flex items-center gap-1 text-xs text-slate-600">
-                  <Heart className="h-3.5 w-3.5" />
+                <button
+                  type="button"
+                  className="flex items-center gap-1 rounded-full px-1 py-0.5 text-xs text-slate-600 transition-colors hover:bg-slate-100/90"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onToggleLike(id, likeCount);
+                  }}
+                  aria-label={isEnglish ? 'Toggle like' : '좋아요 토글'}
+                >
+                  <Heart className={`h-3.5 w-3.5 ${isLiked ? 'fill-[#ff5a36] text-[#ff5a36]' : ''}`} />
                   <span>{likeCount}</span>
-                </div>
+                </button>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
-    </button>
+    </div>
   );
 });
 
@@ -257,6 +280,7 @@ const storeMapViewport = (viewport: { lat: number; lng: number; zoom: number }) 
 
 export default function CoursesPage() {
   const router = useRouter();
+  const utils = trpc.useUtils();
   const { status: sessionStatus } = useSession();
   const { locale } = useLocale();
   const isEnglish = locale === 'en';
@@ -266,6 +290,7 @@ export default function CoursesPage() {
   const userLocationRef = useRef(userLocation);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const selectedCourseIdRef = useRef<string | null>(null);
   const [panelHeight, setPanelHeight] = useState<number>(PANEL_MIN_HEIGHT_PX);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
   const [viewportHeight, setViewportHeight] = useState<number>(900);
@@ -281,11 +306,15 @@ export default function CoursesPage() {
   const [isOnboardingHintVisible, setIsOnboardingHintVisible] = useState(false);
   const [selectionSource, setSelectionSource] = useState<'marker' | 'list' | 'recommended' | null>(null);
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
+  const [likeOverrides, setLikeOverrides] = useState<Record<string, { isLiked: boolean; likeCount: number }>>({});
   const onboardingSteps = isEnglish ? ONBOARDING_STEPS_EN : ONBOARDING_STEPS_KO;
   const mapContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     userLocationRef.current = userLocation;
   }, [userLocation]);
+  useEffect(() => {
+    selectedCourseIdRef.current = selectedCourseId;
+  }, [selectedCourseId]);
   const panelContentRef = useRef<HTMLDivElement>(null);
   const mapSdkRef = useRef<MapSdkApi | null>(null);
   const mapRef = useRef<MapLike | null>(null);
@@ -550,9 +579,77 @@ export default function CoursesPage() {
   const { data: profileSummary } = trpc.profile.summary.useQuery(undefined, {
     enabled: sessionStatus === 'authenticated',
   });
+  const { data: likedCoursesData } = trpc.like.listByUser.useQuery(
+    { limit: 200 },
+    { enabled: sessionStatus === 'authenticated' }
+  );
+  const toggleLikeMutation = trpc.like.toggle.useMutation();
   useEffect(() => {
     profileImageRef.current = profileSummary?.user.image ?? null;
   }, [profileSummary?.user.image]);
+
+  const likedCourseIds = useMemo(() => {
+    return new Set((likedCoursesData?.likes ?? []).map((like) => like.course.id));
+  }, [likedCoursesData?.likes]);
+
+  const getLikeState = useCallback((courseId: string, fallbackLikeCount: number) => {
+    const overridden = likeOverrides[courseId];
+    if (overridden) {
+      return overridden;
+    }
+
+    return {
+      isLiked: likedCourseIds.has(courseId),
+      likeCount: fallbackLikeCount,
+    };
+  }, [likeOverrides, likedCourseIds]);
+
+  const handleToggleLike = useCallback((courseId: string, fallbackLikeCount: number) => {
+    if (sessionStatus !== 'authenticated') {
+      router.push(`/login?callbackUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      return;
+    }
+
+    const previous = getLikeState(courseId, fallbackLikeCount);
+    const optimisticLikeCount = Math.max(0, previous.likeCount + (previous.isLiked ? -1 : 1));
+
+    setLikeOverrides((current) => ({
+      ...current,
+      [courseId]: {
+        isLiked: !previous.isLiked,
+        likeCount: optimisticLikeCount,
+      },
+    }));
+
+    toggleLikeMutation.mutate(
+      { courseId },
+      {
+        onSuccess: (result) => {
+          setLikeOverrides((current) => ({
+            ...current,
+            [courseId]: {
+              isLiked: result.isLiked,
+              likeCount: result.likeCount,
+            },
+          }));
+          void utils.course.list.invalidate();
+          void utils.course.byId.invalidate({ id: courseId });
+          void utils.like.listByUser.invalidate();
+          void utils.home.summary.invalidate();
+          void utils.ranking.list.invalidate();
+        },
+        onError: (error) => {
+          setLikeOverrides((current) => ({
+            ...current,
+            [courseId]: previous,
+          }));
+          toast.error(error.data?.code === 'UNAUTHORIZED'
+            ? (isEnglish ? 'Sign-in is required.' : '로그인이 필요합니다')
+            : (isEnglish ? 'Failed to update like.' : '좋아요를 반영하지 못했습니다'));
+        },
+      }
+    );
+  }, [getLikeState, isEnglish, router, sessionStatus, toggleLikeMutation, utils.course.byId, utils.course.list, utils.home.summary, utils.like.listByUser, utils.ranking.list]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current || !userMarkerRef.current) return;
@@ -761,7 +858,16 @@ export default function CoursesPage() {
     setMapInteractiveForPanel(false);
   }, [setMapInteractiveForPanel]);
 
+  const isInteractivePanelTarget = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest('button, a, input, select, textarea, [role="button"], [data-rg-interactive="true"]'));
+  }, []);
+
   const onPanelContentPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isInteractivePanelTarget(event.target)) {
+      return;
+    }
+
     if (event.pointerType === 'touch') {
       beginPanelInteraction();
       return;
@@ -776,7 +882,7 @@ export default function CoursesPage() {
       isDraggingPanel: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [beginPanelInteraction]);
+  }, [beginPanelInteraction, isInteractivePanelTarget]);
 
   const onPanelContentPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const state = panelContentPointerPullStateRef.current;
@@ -825,13 +931,17 @@ export default function CoursesPage() {
   }, [endPanelInteraction, snapPanelHeight]);
 
   const onPanelContentTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (isInteractivePanelTarget(event.target)) {
+      return;
+    }
+
     beginPanelInteraction();
     panelContentPullStateRef.current = {
       startY: event.touches[0]?.clientY ?? 0,
       startHeight: panelHeightRef.current,
       isDraggingPanel: false,
     };
-  }, [beginPanelInteraction]);
+  }, [beginPanelInteraction, isInteractivePanelTarget]);
 
   const onPanelContentTouchMove = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
     const state = panelContentPullStateRef.current;
@@ -929,6 +1039,7 @@ export default function CoursesPage() {
     if (focusCourseId) {
       queueMicrotask(() => {
         setIsNearbyCourseMarkerVisible(true);
+        setSelectionSource('list');
         setSelectedCourseId(focusCourseId);
       });
       params.delete('focusCourseId');
@@ -1162,8 +1273,11 @@ export default function CoursesPage() {
 
     const center = toLatLng(userLocation.lat, userLocation.lng);
     const markerImage = profileImageRef.current;
-    mapRef.current.setCenter(center);
-    mapRef.current.setZoom(14);
+
+    if (!selectedCourseIdRef.current) {
+      mapRef.current.setCenter(center);
+      mapRef.current.setZoom(14);
+    }
 
     if (!userMarkerRef.current || userMarkerImageRef.current !== markerImage) {
       const markerContent = createCurrentLocationMarkerElement(markerImage, { size: 36 });
@@ -1227,14 +1341,17 @@ export default function CoursesPage() {
     }
 
     markerCourses.forEach((course) => {
+      const courseIsLiked = getLikeState(course.id, 0).isLiked;
       const markerButton = document.createElement('button');
       markerButton.type = 'button';
       markerButton.className = [
         'h-9 w-9 rounded-full border-2 border-white text-white shadow-lg',
         'flex items-center justify-center text-sm',
-        selectedCourseId === course.id ? 'bg-sky-600' : 'bg-emerald-500',
+        selectedCourseId === course.id
+          ? (courseIsLiked ? 'bg-[#ff5a36]' : 'bg-[#0f5fd7]')
+          : (courseIsLiked ? 'bg-[#ffb020] text-[#102449]' : 'bg-[#67c93a] text-[#102449]'),
       ].join(' ');
-      markerButton.textContent = '🏃';
+      markerButton.textContent = courseIsLiked ? '❤️' : '🏃';
       markerButton.title = course.title;
       markerButton.onclick = () => {
         setSelectionSource('marker');
@@ -1253,13 +1370,17 @@ export default function CoursesPage() {
 
       courseMarkersRef.current.push(marker);
     });
-  }, [courses?.courses, isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode, clearCourseMarkers, toLatLng]);
+  }, [courses?.courses, getLikeState, isNearbyCourseMarkerVisible, nearbyCourses, selectedCourse, selectedCourseId, viewMode, clearCourseMarkers, toLatLng]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current || !mapSdkRef.current) return;
 
     const sdk = mapSdkRef.current;
     const mapInstance = mapRef.current;
+    const selectedPathColors = selectedCourse
+      && getLikeState(selectedCourse.id, selectedCourse.likeCount).isLiked
+      ? { outline: '#ffb020', main: '#ff5a36' }
+      : { outline: '#0f5fd7', main: '#1d8fff' };
     if (!selectedCourseId || !selectedCourse || selectedWaypointList.length < 2) {
       clearSelectedPath();
       return;
@@ -1273,7 +1394,7 @@ export default function CoursesPage() {
       selectedOutlinePolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#15803d',
+        strokeColor: selectedPathColors.outline,
         strokeWeight: 8,
         strokeOpacity: 0.5,
         strokeLineCap: 'round',
@@ -1288,7 +1409,7 @@ export default function CoursesPage() {
       selectedMainPolylineRef.current = new sdk.Polyline({
         map: mapInstance,
         path,
-        strokeColor: '#15803d',
+        strokeColor: selectedPathColors.main,
         strokeWeight: 6,
         strokeOpacity: 0.98,
         strokeLineCap: 'round',
@@ -1297,7 +1418,7 @@ export default function CoursesPage() {
       });
     }
 
-  }, [selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
+  }, [getLikeState, selectedCourse, selectedCourseId, selectedWaypointList, viewMode, clearSelectedPath, toLatLng]);
 
   useEffect(() => {
     if (viewMode !== 'map' || selectionSource !== 'list') return;
@@ -1369,7 +1490,7 @@ export default function CoursesPage() {
     });
   }, [courses?.courses, maxPathPoints]);
   const locationButtonTransitionClass = LOCATION_FAB_TRANSITION_CLASS;
-  const locationButtonBottom = panelHeight + BOTTOM_NAV_HEIGHT_PX + (selectedCourse ? 72 : 12);
+  const locationButtonBottom = panelHeight + BOTTOM_NAV_HEIGHT_PX + (selectedCourse ? 148 : 12);
   const canRenderMapPanelAd = !isLoading
     && !isError
     && !isOnboardingOpen
@@ -1377,13 +1498,16 @@ export default function CoursesPage() {
   const locationButtonModeClass = headingMode === 'off'
     ? '!border-white/80 !bg-white/95 !text-slate-700'
     : headingMode === 'follow'
-      ? '!border-sky-300 !bg-sky-600 !text-white shadow-[0_10px_20px_-14px_rgba(2,132,199,0.85)]'
-      : '!border-emerald-300 !bg-emerald-600 !text-white shadow-[0_10px_20px_-14px_rgba(5,150,105,0.88)] ring-2 ring-emerald-200/80';
+      ? '!border-[#1d8fff]/60 !bg-[#0f5fd7] !text-white shadow-[0_10px_20px_-14px_rgba(15,95,215,0.8)]'
+      : '!border-[#67c93a]/70 !bg-[#67c93a] !text-[#102449] shadow-[0_10px_20px_-14px_rgba(103,201,58,0.72)] ring-2 ring-[#67c93a]/30';
   const locationButtonAriaLabel = headingMode === 'off'
     ? (isEnglish ? 'Move to current location (tracking off)' : '내 현재 위치로 이동 (추적 꺼짐)')
     : headingMode === 'follow'
       ? (isEnglish ? 'Move to current location (tracking on)' : '내 현재 위치로 이동 (추적 켜짐)')
       : (isEnglish ? 'Move to current location (tracking + heading fan on)' : '내 현재 위치로 이동 (추적 + 방향 부채꼴 켜짐)');
+  const selectedCourseLikeState = selectedCourse
+    ? getLikeState(selectedCourse.id, selectedCourse.likeCount)
+    : null;
 
   const getDistanceLabel = (courseLat: number, courseLng: number) => {
     if (locationError) return isEnglish ? 'Need location permission' : '위치 권한 필요';
@@ -1530,7 +1654,7 @@ export default function CoursesPage() {
         {starterCourse ? (
           <button
             type="button"
-            className="w-full rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-left"
+            className="w-full rounded-2xl border border-[#1d8fff]/20 bg-[#1d8fff]/8 px-3 py-2 text-left"
             onClick={() => {
               setIsNearbyCourseMarkerVisible(true);
               setSelectionSource('recommended');
@@ -1539,7 +1663,7 @@ export default function CoursesPage() {
               snapPanelTo(PANEL_SNAP_INDEX.MID);
             }}
           >
-            <p className="text-[11px] font-semibold text-emerald-700">
+            <p className="text-[11px] font-semibold text-[#0f5fd7]">
               {isEnglish ? 'Recommended first collect' : '첫 수집 추천 코스'}
             </p>
             <p className="mt-1 truncate text-xs font-medium text-slate-900">{starterCourse.title}</p>
@@ -1615,7 +1739,7 @@ export default function CoursesPage() {
                 title={course.title}
                 totalDistance={course.totalDistance}
                 estimatedTime={course.estimatedTime}
-                likeCount={course.likeCount}
+                likeCount={getLikeState(course.id, course.likeCount).likeCount}
                 centerLat={course.centerLat}
                 centerLng={course.centerLng}
                 previewUrl={course.previewUrl}
@@ -1624,7 +1748,9 @@ export default function CoursesPage() {
                 isEnglish={isEnglish}
                 difficultyText={difficultyLabel(course.difficulty)}
                 distanceText={getDistanceLabel(course.centerLat, course.centerLng)}
+                isLiked={getLikeState(course.id, course.likeCount).isLiked}
                 onSelect={handleMapListCourseSelect}
+                onToggleLike={handleToggleLike}
               />
               {index === 5 && canRenderMapPanelAd ? (
                 <AdSlot className="pointer-events-none touch-none rounded-2xl border border-white/70 bg-white/80 px-2 py-1" format="horizontal" />
@@ -1710,7 +1836,7 @@ export default function CoursesPage() {
             <button
               type="button"
               aria-label={locationButtonAriaLabel}
-              className={`${LOCATION_FAB_BASE_CLASS} ${locationButtonModeClass} ${locationButtonTransitionClass}`}
+              className={`${LOCATION_FAB_BASE_CLASS} !z-[29] ${locationButtonModeClass} ${locationButtonTransitionClass}`}
               style={{ bottom: getLocationFabBottom(locationButtonBottom) }}
               onClick={moveToCurrentLocation}
             >
@@ -1733,7 +1859,7 @@ export default function CoursesPage() {
             ) : null}
 
             {isOnboardingHintVisible ? (
-              <div className="fixed left-3 right-3 z-[86] top-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] rounded-2xl border border-sky-100 bg-white/95 px-3 py-2 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.5)]">
+              <div className="fixed left-3 right-3 z-[86] top-[calc(max(env(safe-area-inset-top),0.75rem)+2.75rem)] rounded-2xl border border-[#1d8fff]/20 bg-white/95 px-3 py-2 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.5)]">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-slate-700">
                     {isEnglish
@@ -1770,7 +1896,18 @@ export default function CoursesPage() {
                 style={{ bottom: `calc(${panelHeight + 12}px + ${BOTTOM_NAV_HEIGHT_PX}px + env(safe-area-inset-bottom))` }}
               >
                 <div className="mb-2 rounded-2xl border border-white/80 bg-white/95 px-3 py-2 shadow-[0_10px_20px_-16px_rgba(15,23,42,0.6)]">
-                  <p className="truncate text-xs font-semibold text-slate-900">{selectedCourse.title}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-xs font-semibold text-slate-900">{selectedCourse.title}</p>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100/90"
+                      onClick={() => handleToggleLike(selectedCourse.id, selectedCourse.likeCount)}
+                      aria-label={isEnglish ? 'Toggle like' : '좋아요 토글'}
+                    >
+                      <Heart className={`h-3.5 w-3.5 ${selectedCourseLikeState?.isLiked ? 'fill-[#ff5a36] text-[#ff5a36]' : ''}`} />
+                      <span>{selectedCourseLikeState?.likeCount ?? selectedCourse.likeCount}</span>
+                    </button>
+                  </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                     <span className="rounded-full bg-slate-100/80 px-2 py-1">
                       {isEnglish ? 'From me' : '내 위치'} {getDistanceLabel(selectedCourse.centerLat, selectedCourse.centerLng)}
@@ -1851,7 +1988,7 @@ export default function CoursesPage() {
             <div className="text-center py-20">
               <p className="text-slate-500">{isEnglish ? 'No courses available.' : '등록된 코스가 없습니다'}</p>
               <Link href="/create">
-              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-sky-200/70">{isEnglish ? 'Create First Course' : '첫 코스 만들기'}</Button>
+              <Button className="rg-touch rg-press mt-4 rounded-full shadow-md shadow-[#1d8fff]/35">{isEnglish ? 'Create First Course' : '첫 코스 만들기'}</Button>
               </Link>
             </div>
         ) : (
@@ -1875,8 +2012,10 @@ export default function CoursesPage() {
             <div className="rg-stagger space-y-4">
               {courses.courses.map((course) => (
               <Link key={course.id} href={`/courses/${course.id}`}>
-                <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] overflow-hidden cursor-pointer transition-transform hover:-translate-y-0.5">
-                  <div className="relative h-40 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60 flex items-center justify-center">
+                <Card className={`rg-interactive-card rounded-[26px] border bg-white/80 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.6)] overflow-hidden cursor-pointer transition-transform hover:-translate-y-0.5 ${
+                  getLikeState(course.id, course.likeCount).isLiked ? 'border-[#ffb020]/40 ring-1 ring-[#ffb020]/25' : 'border-white/70'
+                }`}>
+                  <div className="relative h-40 bg-gradient-to-br from-[#e5f3ff] via-white to-[#f2fbe8] flex items-center justify-center">
                     <Image
                       src={(() => {
                         const raw = Array.isArray(course.waypoints)
@@ -1906,10 +2045,27 @@ export default function CoursesPage() {
                         </div>
                         <p className="mt-1 text-xs text-slate-500">{isEnglish ? 'From my location' : '내 위치에서'} {getDistanceLabel(course.centerLat, course.centerLng)}</p>
                       </div>
-                      <div className="flex items-center gap-1 text-sm text-slate-600">
-                        <Heart className="w-4 h-4" />
-                        <span>{course.likeCount}</span>
-                      </div>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="flex items-center gap-1 rounded-full px-2 py-1 text-sm text-slate-600 transition-colors hover:bg-slate-100/90"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleToggleLike(course.id, course.likeCount);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            handleToggleLike(course.id, course.likeCount);
+                          }
+                        }}
+                        aria-label={isEnglish ? 'Toggle like' : '좋아요 토글'}
+                      >
+                        <Heart className={`w-4 h-4 ${getLikeState(course.id, course.likeCount).isLiked ? 'fill-[#ff5a36] text-[#ff5a36]' : ''}`} />
+                        <span>{getLikeState(course.id, course.likeCount).likeCount}</span>
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-2 mt-3">

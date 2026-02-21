@@ -718,7 +718,7 @@ function RunPageContent() {
         </div>
 
         {course && courseWaypoints.length >= 2 ? (
-          <div className="absolute top-36 left-4 right-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/90 px-4 py-2 text-xs text-emerald-800 shadow-sm backdrop-blur">
+          <div className="absolute top-36 left-4 right-4 rounded-2xl border border-[#1d8fff]/25 bg-[#1d8fff]/10 px-4 py-2 text-xs text-[#0f5fd7] shadow-sm backdrop-blur">
             {isEnglish ? 'Target course' : '목표 코스'}: <span className="font-semibold">{course.title}</span> · {(course.totalDistance ?? 0).toFixed(1)}km
           </div>
         ) : null}

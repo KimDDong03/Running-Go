@@ -10,15 +10,19 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[linear-gradient(135deg,#0ea5e9_0%,#0284c7_48%,#0369a1_100%)] text-white shadow-[0_18px_32px_-20px_rgba(14,165,233,0.95)] hover:-translate-y-0.5 hover:shadow-[0_22px_38px_-22px_rgba(2,132,199,0.95)]",
+          "border-2 border-[#0f5fd7]/20 bg-[linear-gradient(135deg,#1d8fff_0%,#0f5fd7_100%)] text-white shadow-[0_18px_34px_-20px_rgba(15,95,215,0.55)] hover:-translate-y-0.5 hover:brightness-105",
+        mapPop:
+          "border-2 border-[#0f5fd7]/20 bg-[linear-gradient(135deg,#1d8fff_0%,#0f5fd7_100%)] text-white shadow-[0_18px_34px_-20px_rgba(15,95,215,0.55)] hover:-translate-y-0.5 hover:brightness-105",
+        mapPopOutline:
+          "border-2 border-[#102449]/18 bg-white/92 text-[#102449] shadow-[0_12px_24px_-18px_rgba(16,36,73,0.45)] hover:-translate-y-0.5 hover:bg-white",
         destructive:
           "bg-[linear-gradient(135deg,#ef4444_0%,#dc2626_100%)] text-white shadow-[0_16px_28px_-20px_rgba(220,38,38,0.9)] hover:-translate-y-0.5 hover:brightness-95 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
-          "border-white/70 bg-white/82 text-slate-700 shadow-[0_12px_24px_-20px_rgba(15,23,42,0.6)] backdrop-blur hover:-translate-y-0.5 hover:bg-white hover:text-slate-900 dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          "border-2 border-[#102449]/18 bg-white/92 text-[#102449] shadow-[0_12px_24px_-18px_rgba(16,36,73,0.45)] hover:-translate-y-0.5 hover:bg-white",
         secondary:
-          "bg-[linear-gradient(135deg,#14b8a6_0%,#0f766e_100%)] text-white shadow-[0_16px_28px_-20px_rgba(20,184,166,0.85)] hover:-translate-y-0.5 hover:brightness-95",
+          "border border-[#67c93a]/45 bg-[#67c93a] text-[#102449] shadow-[0_16px_28px_-20px_rgba(103,201,58,0.55)] hover:-translate-y-0.5 hover:brightness-95",
         ghost:
-          "text-slate-600 hover:bg-sky-100/75 hover:text-sky-800 dark:hover:bg-accent/50",
+          "text-slate-600 hover:bg-[#1d8fff]/10 hover:text-[#0f5fd7]",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

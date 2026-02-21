@@ -33,9 +33,9 @@ const difficultyLabels: Record<Difficulty, string> = {
 };
 
 const difficultyColors: Record<Difficulty, string> = {
-  EASY: 'bg-green-500 text-white',
-  MEDIUM: 'bg-yellow-500 text-white',
-  HARD: 'bg-red-500 text-white',
+  EASY: 'bg-[#67c93a] text-[#102449]',
+  MEDIUM: 'bg-[#ffb020] text-[#102449]',
+  HARD: 'bg-[#ff5a36] text-white',
 };
 
 export default function CollectionPage() {
@@ -256,7 +256,7 @@ export default function CollectionPage() {
         const outline = new sdk.Polyline({
           map: mapInstance,
           path,
-          strokeColor: '#15803d',
+          strokeColor: '#0f5fd7',
           strokeWeight: 8,
           strokeOpacity: 0.5,
           strokeLineCap: 'round',
@@ -266,7 +266,7 @@ export default function CollectionPage() {
         const main = new sdk.Polyline({
           map: mapInstance,
           path,
-          strokeColor: '#15803d',
+          strokeColor: '#1d8fff',
           strokeWeight: 5,
           strokeOpacity: 0.95,
           strokeLineCap: 'round',
@@ -440,8 +440,8 @@ export default function CollectionPage() {
             ) : null}
 
             {selectedCourseIds.length > 0 && (
-              <div className="flex flex-col gap-2 rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-sky-700">{isEnglish ? `${selectedCourseIds.length} selected` : `${selectedCourseIds.length}개 코스 선택됨`}</p>
+              <div className="flex flex-col gap-2 rounded-2xl border border-[#1d8fff]/25 bg-[#1d8fff]/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-[#0f5fd7]">{isEnglish ? `${selectedCourseIds.length} selected` : `${selectedCourseIds.length}개 코스 선택됨`}</p>
                 <div className="flex items-center gap-2 sm:justify-end">
                   <Button
                     size="sm"
@@ -509,7 +509,7 @@ export default function CollectionPage() {
                   }}
                 >
                   <Card className="rg-interactive-card rounded-[26px] border border-white/70 bg-white/80 shadow-[0_16px_32px_-26px_rgba(15,23,42,0.55)] overflow-hidden">
-                    <div className="relative h-28 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+                    <div className="relative h-28 bg-gradient-to-br from-[#e5f3ff] via-white to-[#f2fbe8]">
                       {viewType === 'created' && (
                         <button
                           type="button"
@@ -529,7 +529,7 @@ export default function CollectionPage() {
                       )}
                       <button
                         type="button"
-                        className={`absolute right-2 top-2 z-20 h-6 min-w-6 rounded-full border px-1 text-[10px] font-semibold ${isSelected ? 'border-sky-300 bg-sky-500 text-white' : 'border-white/80 bg-white/90 text-slate-700'}`}
+                        className={`absolute right-2 top-2 z-20 h-6 min-w-6 rounded-full border px-1 text-[10px] font-semibold ${isSelected ? 'border-[#1d8fff]/50 bg-[#0f5fd7] text-white' : 'border-white/80 bg-white/90 text-slate-700'}`}
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();

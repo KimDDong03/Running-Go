@@ -256,10 +256,10 @@ export default function ProfilePage() {
                 </div>
               )}
               <div className="space-y-2">
-                <div className="flex items-center gap-3 rounded-2xl border border-sky-100 bg-gradient-to-r from-sky-50/90 to-cyan-50/80 p-3">
+                <div className="flex items-center gap-3 rounded-2xl border border-[#1d8fff]/22 bg-gradient-to-r from-[#e8f4ff] to-[#f4f9ff] p-3">
                   <div className="text-2xl">{collectorTier.icon}</div>
                   <div>
-                    <div className="text-sm text-sky-700">{isEnglish ? 'Collector Tier' : '탐험가 등급(수집)'}</div>
+                    <div className="text-sm text-[#0f5fd7]">{isEnglish ? 'Collector Tier' : '탐험가 등급(수집)'}</div>
                     <div className="text-base font-semibold text-slate-900">{collectorTier.name}</div>
                     {collectorTier.nextThreshold && (
                       <div className="text-xs text-slate-600">
@@ -268,10 +268,10 @@ export default function ProfilePage() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-teal-50/80 p-3">
+                <div className="flex items-center gap-3 rounded-2xl border border-[#67c93a]/30 bg-gradient-to-r from-[#f2fbe8] to-[#f8fcf1] p-3">
                   <div className="text-2xl">{creatorTier.icon}</div>
                   <div>
-                    <div className="text-sm text-emerald-700">{isEnglish ? 'Creator Tier' : '설계자 등급(제작)'}</div>
+                    <div className="text-sm text-[#3f8f1c]">{isEnglish ? 'Creator Tier' : '설계자 등급(제작)'}</div>
                     <div className="text-base font-semibold text-slate-900">{creatorTier.name}</div>
                     {creatorTier.nextThreshold && (
                       <div className="text-xs text-slate-600">

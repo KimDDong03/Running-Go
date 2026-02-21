@@ -123,7 +123,7 @@ function RunResultPageContent() {
             )}
             {!isCollected && (
               <Link href="/?sort=NEAREST&showMarkers=1">
-                <Button size="lg" variant="outline" className="rg-touch w-full rounded-2xl border-emerald-200 text-emerald-700">
+                <Button size="lg" variant="secondary" className="rg-touch w-full rounded-2xl">
                   {isEnglish ? 'Find Easier Nearby Course' : '가까운 쉬운 코스 찾기'}
                 </Button>
               </Link>

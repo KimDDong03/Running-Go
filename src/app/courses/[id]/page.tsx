@@ -60,9 +60,9 @@ const difficultyLabel = (difficulty: Difficulty, isEnglish: boolean) => {
 };
 
 const difficultyColors: Record<Difficulty, string> = {
-  EASY: 'bg-green-500 text-white',
-  MEDIUM: 'bg-yellow-500 text-white',
-  HARD: 'bg-red-500 text-white',
+  EASY: 'bg-[#67c93a] text-[#102449]',
+  MEDIUM: 'bg-[#ffb020] text-[#102449]',
+  HARD: 'bg-[#ff5a36] text-white',
 };
 
 interface CourseDetailPageProps {
@@ -186,7 +186,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         outlinePolylineRef.current = new sdk.Polyline({
           map,
           path: coordinates,
-          strokeColor: '#15803d',
+          strokeColor: '#0f5fd7',
           strokeWeight: 8,
           strokeOpacity: 0.5,
           strokeLineCap: 'round',
@@ -201,7 +201,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
         mainPolylineRef.current = new sdk.Polyline({
           map,
           path: coordinates,
-          strokeColor: '#15803d',
+          strokeColor: '#1d8fff',
           strokeWeight: 5,
           strokeOpacity: 0.96,
           strokeLineCap: 'round',
@@ -273,7 +273,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   return (
     <div className="rg-page pb-24">
       {/* Header Image */}
-      <div className="relative h-64 bg-gradient-to-br from-sky-100/70 via-white to-emerald-100/60">
+      <div className="relative h-64 bg-gradient-to-br from-[#e5f3ff] via-white to-[#f2fbe8]">
         <Link href="/collection">
           <Button
             variant="secondary"

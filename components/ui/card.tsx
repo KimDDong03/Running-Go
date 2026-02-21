@@ -2,12 +2,27 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+const cardToneClass = {
+  default:
+    "rg-map-pop-card border-[#102449]/20 bg-[linear-gradient(165deg,rgba(255,255,255,0.95),rgba(244,250,255,0.9))]",
+  mapPop:
+    "rg-map-pop-card border-[#102449]/20 bg-[linear-gradient(165deg,rgba(255,255,255,0.95),rgba(244,250,255,0.9))]",
+} as const
+
+type CardTone = keyof typeof cardToneClass
+
+function Card({
+  className,
+  tone = "default",
+  ...props
+}: React.ComponentProps<"div"> & { tone?: CardTone }) {
   return (
     <div
       data-slot="card"
+      data-tone={tone}
       className={cn(
-        "bg-[linear-gradient(165deg,rgba(255,255,255,0.92),rgba(248,252,255,0.84))] text-card-foreground flex flex-col gap-6 rounded-[26px] border border-white/70 py-6 shadow-[0_20px_40px_-30px_rgba(15,23,42,0.65)] backdrop-blur-md",
+        "text-card-foreground flex flex-col gap-6 rounded-[26px] border py-6 backdrop-blur-md",
+        cardToneClass[tone],
         className
       )}
       {...props}
